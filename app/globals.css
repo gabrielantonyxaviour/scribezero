@@ -1,0 +1,166 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   ScribeZero — Editorial Dark. Dark-only forever.
+   Jade (#84C4A0) is reserved for live / active state ONLY.
+   ============================================================ */
+:root {
+  color-scheme: dark;
+  --radius: 0.5rem;
+
+  /* shadcn semantic tokens, mapped to Editorial Dark */
+  --background: #0e0f0d;
+  --foreground: #f5efe2;
+  --card: #161815;
+  --card-foreground: #f5efe2;
+  --popover: #1e211d;
+  --popover-foreground: #f5efe2;
+  --primary: #f5efe2;
+  --primary-foreground: #0e0f0d;
+  --secondary: #1e211d;
+  --secondary-foreground: #f5efe2;
+  --muted: #161815;
+  --muted-foreground: #a9a89e;
+  --accent: #1e211d;
+  --accent-foreground: #f5efe2;
+  --destructive: #d6573f;
+  --destructive-foreground: #0e0f0d;
+  --border: rgba(245, 239, 226, 0.08);
+  --input: rgba(245, 239, 226, 0.14);
+  --ring: #84c4a0;
+
+  /* editorial-dark surfaces + ink + signals */
+  --bg: #0e0f0d;
+  --surface-1: #161815;
+  --surface-2: #1e211d;
+  --surface-3: #121311;
+  --border-strong: rgba(245, 239, 226, 0.14);
+  --border-faint: rgba(245, 239, 226, 0.05);
+  --ink: #f5efe2;
+  --ink-muted: #a9a89e;
+  --ink-dim: #6e6d66;
+  --jade: #84c4a0;
+  --jade-soft: rgba(132, 196, 160, 0.12);
+  --jade-deep: #3e6b52;
+  --amber: #e0a458;
+  --amber-soft: rgba(224, 164, 88, 0.12);
+  --vermillion: #d6573f;
+  --vermillion-soft: rgba(214, 87, 63, 0.12);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border-strong: var(--border-strong);
+  --color-border-faint: var(--border-faint);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-dim: var(--ink-dim);
+  --color-jade: var(--jade);
+  --color-jade-soft: var(--jade-soft);
+  --color-jade-deep: var(--jade-deep);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-vermillion: var(--vermillion);
+  --color-vermillion-soft: var(--vermillion-soft);
+
+  --font-display: var(--font-instrument-serif);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    background: var(--bg);
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--jade-soft);
+    color: var(--ink);
+  }
+}
+
+/* Editorial display — Instrument Serif italic carries the personality */
+.ds-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  letter-spacing: -0.01em;
+  line-height: 1.04;
+}
+.ds-mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-feature-settings: "ss01";
+}
+.ds-eyebrow {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* Jade live signal */
+@keyframes ds-pulse-jade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.ds-anim-pulse-jade {
+  animation: ds-pulse-jade 1.6s ease-in-out infinite;
+}
+
+/* On-load entrance — visible by default, never JS-gated */
+@keyframes ds-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.ds-rise {
+  animation: ds-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-rise { animation: none; }
+}
+
+/* thin custom scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-2) transparent;
+}
