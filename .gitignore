@@ -1,0 +1,25 @@
+# deps
+node_modules/
+.pnp.*
+.yarn/*
+
+# env / secrets — NEVER commit (public repo)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# build
+dist/
+build/
+.next/
+out/
+coverage/
+
+# misc
+.DS_Store
+*.log
+.turbo/
+.vercel/
