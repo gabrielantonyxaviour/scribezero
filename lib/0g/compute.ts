@@ -41,11 +41,11 @@ async function ensureLedger(b: any) {
   try {
     await b.ledger.getLedger();
   } catch {
-    // No ledger yet — create + fund a small amount from the wallet's native balance.
+    // No ledger yet — create it. The 0G Compute contract requires a 3-0G minimum.
     try {
-      await b.ledger.addLedger(0.02);
+      await b.ledger.addLedger(3);
     } catch {
-      await b.ledger.depositFund(0.02).catch(() => {});
+      await b.ledger.depositFund(3).catch(() => {});
     }
   }
 }
@@ -158,7 +158,7 @@ export async function generateVerifiable(
     // Lazy top-up on insufficient funds, then one retry.
     if (/insufficient|balance|fund/i.test(String(e?.message))) {
       try {
-        await b.ledger.depositFund(0.02);
+        await b.ledger.depositFund(3);
         return await run();
       } catch (e2: any) {
         throw new Error(`compute funding failed: ${e2?.message ?? e2}`);
