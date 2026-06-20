@@ -17,8 +17,9 @@ import { Button } from "@/components/ui/button";
 import { LiveDot } from "@/components/sz/live-dot";
 import { Copyable } from "@/components/sz/copyable";
 import { cn } from "@/lib/utils";
-import { DEMO_SEGMENTS, DEMO_RECORD, DEMO_PROOF } from "@/lib/mock/data";
-import { SEAL_STEPS, sealConsult, type StepId, type StepStatus } from "@/lib/mock/services";
+import { DEMO_SEGMENTS, DEMO_RECORD } from "@/lib/mock/data";
+import { SEAL_STEPS, type StepId, type StepStatus } from "@/lib/mock/services";
+import { sealConsultSmart, type SmartSealResult } from "@/lib/services";
 import { truncHash, truncAddress } from "@/lib/format";
 
 type Phase = "idle" | "recording" | "ready" | "sealing" | "sealed";
@@ -41,6 +42,7 @@ export default function ScribePage() {
     sealed: "idle",
   });
   const [durations, setDurations] = useState<Partial<Record<StepId, number>>>({});
+  const [result, setResult] = useState<SmartSealResult | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const recording = phase === "recording";
@@ -72,16 +74,19 @@ export default function ScribePage() {
 
   const generate = useCallback(async () => {
     setPhase("sealing");
-    await sealConsult((id, status, ms) => {
+    const r = await sealConsultSmart((id, status, ms) => {
       setSteps((s) => ({ ...s, [id]: status }));
       if (ms) setDurations((d) => ({ ...d, [id]: ms }));
     });
+    setResult(r);
     setPhase("sealed");
   }, []);
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
   const visible = DEMO_SEGMENTS.slice(0, shown);
   const words = visible.reduce((n, s) => n + s.english.split(" ").length, 0);
+  const rec = result?.record ?? DEMO_RECORD;
+  const live = result?.mode === "live";
 
   return (
     <AppShell>
@@ -251,13 +256,24 @@ export default function ScribePage() {
               <CircleCheck className="size-4.5 text-jade" />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-ink">Verified &amp; owned on 0G</div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-ink">Verified &amp; owned on 0G</span>
+                {live ? (
+                  <span className="ds-mono flex items-center gap-1 rounded-full border border-jade/30 bg-jade-soft px-2 py-0.5 text-[10px] text-jade">
+                    <LiveDot size={5} /> 0G testnet
+                  </span>
+                ) : (
+                  <span className="ds-mono rounded-full border border-border px-2 py-0.5 text-[10px] text-ink-dim">
+                    demo · mock 0G
+                  </span>
+                )}
+              </div>
               <div className="ds-mono mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-dim">
-                <span>TeeTLS proof <span className="text-jade">✓</span> {truncHash(DEMO_PROOF.routingSignature)}</span>
+                <span>TeeTLS proof <span className="text-jade">✓</span> {truncHash(rec.teeTlsProof)}</span>
                 <span>·</span>
-                <Copyable value={DEMO_RECORD.zgStorageRootHash} display={`root ${truncHash(DEMO_RECORD.zgStorageRootHash)}`} label="Storage root copied" />
+                <Copyable value={rec.zgStorageRootHash} display={`root ${truncHash(rec.zgStorageRootHash)}`} label="Storage root copied" />
                 <span>·</span>
-                <span>owner {truncAddress(DEMO_RECORD.ownerAddress)}</span>
+                <span>owner {truncAddress(rec.ownerAddress)}</span>
               </div>
             </div>
             <div className="flex gap-2">
