@@ -50,13 +50,67 @@ async function ensureLedger(b: any) {
   }
 }
 
+const ROUTER_URL = process.env.ZEROG_COMPUTE_ROUTER || "https://router-api.0g.ai/v1";
+const ROUTER_MODEL = process.env.ZEROG_COMPUTE_MODEL || "glm-5.2";
+
 /**
- * Verifiable SOAP generation through a 0G Compute TEE provider.
- * Returns the model output + a proof object (the TeeTLS routing proof handle).
+ * Hosted 0G Compute Router path (router-api.0g.ai) — avoids the 3-0G broker ledger.
+ * Inference is billed to the sk- API key; the TEE proof is still verified independently
+ * on-chain via processResponse (read-only, any wallet works).
+ */
+async function generateViaRouter(
+  messages: { role: string; content: string }[],
+  apiKey: string,
+): Promise<{ content: string; proof: ComputeProof }> {
+  const res = await fetch(`${ROUTER_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ model: ROUTER_MODEL, messages, temperature: 0.2 }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`router ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data: any = await res.json();
+  const content: string = data.choices?.[0]?.message?.content ?? "";
+  const provider: string = data.x_0g_trace?.provider ?? "";
+  const chatID: string = res.headers.get("ZG-Res-Key") || data.id || "";
+
+  let verified: boolean | null = null;
+  if (provider && chatID) {
+    try {
+      const b = await broker(); // read-only on-chain verification, no ledger needed
+      verified = await b.inference.processResponse(provider, chatID);
+    } catch {
+      verified = null;
+    }
+  }
+  return {
+    content,
+    proof: {
+      provider: provider || "0g-router",
+      model: ROUTER_MODEL,
+      chatID,
+      verified,
+      requestHash: data?.x_0g_trace?.request_hash,
+      responseHash: data?.x_0g_trace?.response_hash,
+    },
+  };
+}
+
+/**
+ * Verifiable SOAP generation. Uses the hosted 0G Router when ZEROG_ROUTER_API_KEY is
+ * set, otherwise the wallet/broker ledger path. Both run inside 0G Compute TEEs.
  */
 export async function generateVerifiable(
   messages: { role: string; content: string }[],
 ): Promise<{ content: string; proof: ComputeProof }> {
+  const routerKey = process.env.ZEROG_ROUTER_API_KEY;
+  if (routerKey) return generateViaRouter(messages, routerKey);
+
   const b = await broker();
   await ensureLedger(b);
 
