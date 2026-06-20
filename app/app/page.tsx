@@ -86,7 +86,7 @@ export default function ScribePage() {
   const visible = DEMO_SEGMENTS.slice(0, shown);
   const words = visible.reduce((n, s) => n + s.english.split(" ").length, 0);
   const rec = result?.record ?? DEMO_RECORD;
-  const live = result?.mode === "live";
+  const mode = result?.mode ?? "mock";
 
   return (
     <AppShell>
@@ -258,9 +258,13 @@ export default function ScribePage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-ink">Verified &amp; owned on 0G</span>
-                {live ? (
+                {mode === "live" ? (
                   <span className="ds-mono flex items-center gap-1 rounded-full border border-jade/30 bg-jade-soft px-2 py-0.5 text-[10px] text-jade">
                     <LiveDot size={5} /> 0G testnet
+                  </span>
+                ) : mode === "storage" ? (
+                  <span className="ds-mono flex items-center gap-1 rounded-full border border-jade/30 bg-jade-soft px-2 py-0.5 text-[10px] text-jade">
+                    <LiveDot size={5} /> 0G Storage · live
                   </span>
                 ) : (
                   <span className="ds-mono rounded-full border border-border px-2 py-0.5 text-[10px] text-ink-dim">
@@ -269,7 +273,13 @@ export default function ScribePage() {
                 )}
               </div>
               <div className="ds-mono mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-dim">
-                <span>TeeTLS proof <span className="text-jade">✓</span> {truncHash(rec.teeTlsProof)}</span>
+                {mode === "live" ? (
+                  <span>TeeTLS proof <span className="text-jade">✓</span> {truncHash(rec.teeTlsProof)}</span>
+                ) : (
+                  <span className="text-ink-dim">
+                    Compute · demo{mode === "storage" ? " (add key)" : ""}
+                  </span>
+                )}
                 <span>·</span>
                 <Copyable value={rec.zgStorageRootHash} display={`root ${truncHash(rec.zgStorageRootHash)}`} label="Storage root copied" />
                 <span>·</span>
