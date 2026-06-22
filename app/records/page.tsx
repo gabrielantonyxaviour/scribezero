@@ -9,18 +9,15 @@ import {
   CircleCheck,
   Calendar,
   ChevronDown,
-  ArrowUpRight,
   ShieldCheck,
   FileText,
   Check,
 } from "lucide-react";
 
 import { AppShell } from "@/components/shell/app-shell";
-import { StatusChip } from "@/components/sz/status-chip";
-import { Copyable } from "@/components/sz/copyable";
+import { RecordsList } from "@/components/sz/records-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
@@ -29,7 +26,6 @@ import {
 import { cn } from "@/lib/utils";
 import { DEMO_RECORDS } from "@/lib/mock/data";
 import type { Lang, RecordStatus } from "@/lib/mock/data";
-import { formatDayMonth, truncHash, LANGUAGE_LABEL } from "@/lib/format";
 
 const LANG_OPTIONS: { value: Lang; label: string }[] = [
   { value: "ta", label: "ta-IN · Tamil" },
@@ -114,6 +110,12 @@ export default function RecordsPage() {
     setStatuses((prev) =>
       prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
     );
+  }
+  function resetFilters() {
+    setQuery("");
+    setLangs([]);
+    setStatuses([]);
+    setDateRange("all");
   }
 
   const filtered = useMemo(() => {
@@ -258,63 +260,8 @@ export default function RecordsPage() {
         </span>
       </div>
 
-      {/* Records table */}
-      <div className="overflow-hidden rounded-xl border border-border bg-surface-3">
-        <div className="grid grid-cols-[74px_1fr_64px_120px_minmax(0,118px)_40px] gap-3 border-b border-border bg-surface-1 px-4 py-3">
-          {["Date", "Chief complaint", "Lang", "Status", "Root", ""].map((h, i) => (
-            <span key={i} className="ds-eyebrow text-ink-dim">
-              {h}
-            </span>
-          ))}
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="px-6 py-14 text-center">
-            <p className="text-sm text-ink-muted">No consultations match these filters.</p>
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                setLangs([]);
-                setStatuses([]);
-                setDateRange("all");
-              }}
-              className="mt-2 text-[13px] text-jade transition-opacity hover:opacity-80"
-            >
-              Clear filters
-            </button>
-          </div>
-        ) : (
-          filtered.map((r, i) => (
-            <Link
-              key={r.id}
-              href={`/records/${r.id}`}
-              className="group grid grid-cols-[74px_1fr_64px_120px_minmax(0,118px)_40px] items-center gap-3 border-b border-border/60 px-4 py-3.5 transition-colors last:border-b-0 hover:bg-surface-1"
-            >
-              <span className="ds-mono text-xs text-ink-muted">
-                {formatDayMonth(r.date)}
-              </span>
-              <span className="truncate text-sm text-ink">{r.complaint}</span>
-              <Badge
-                variant="outline"
-                className="ds-mono w-fit justify-self-start border-border bg-surface-2 px-1.5 py-0.5 text-[11px] font-normal text-ink-muted"
-              >
-                {LANGUAGE_LABEL[r.language]}
-              </Badge>
-              <StatusChip status={r.status} className="justify-self-start" />
-              <span onClick={(e) => e.preventDefault()} className="min-w-0">
-                <Copyable
-                  value={r.root}
-                  display={truncHash(r.root)}
-                  label="Root copied"
-                  className="text-xs"
-                />
-              </span>
-              <ArrowUpRight className="size-[15px] justify-self-end text-ink-dim transition-colors group-hover:text-ink" />
-            </Link>
-          ))
-        )}
-      </div>
+      {/* Records library — grid table on desktop, stacked cards on phones */}
+      <RecordsList records={filtered} onReset={resetFilters} />
 
       {/* Empty-state reference block */}
       <div className="mt-8 border-t border-border pt-6">
