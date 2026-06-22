@@ -2,6 +2,9 @@
 
 **A verifiable Indian-language AI health scribe.** Speak Tamil or Hindi → a structured clinical note that is generated inside 0G Compute and owned by you on 0G Storage. *Your medical record, verifiably private, owned by you* — true at the protocol level, not cosmetic.
 
+**🔗 Live demo: <https://scribezero.vercel.app>** · **Code: <https://github.com/gabrielantonyxaviour/scribezero>**
+The live site runs **real 0G Compute** (glm-5.2 on a Private/TEE provider) + **real 0G Storage** (on-chain Merkle roots) — not a mock.
+
 ## 30-second demo script (for voters)
 1. Open `/` — the pitch. Hit **Try the scribe**.
 2. On `/app`, press the mic (or **Play sample consult**) — a Tamil doctor↔patient consult streams in as a **live bilingual transcript** (native + English, speaker-diarized).

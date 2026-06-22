@@ -1,5 +1,4 @@
 import { getWallet } from "./server";
-import { createZGComputeNetworkBroker } from "@0gfoundation/0g-compute-ts-sdk";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -48,6 +47,7 @@ export async function transcribeViaRouter(
   let verified: boolean | null = null;
   if (data?.x_0g_trace?.provider && chatID) {
     try {
+      const { createZGComputeNetworkBroker } = await import("@0gfoundation/0g-compute-ts-sdk");
       const b = await createZGComputeNetworkBroker(getWallet() as any);
       verified = await b.inference.processResponse(provider, chatID);
     } catch {

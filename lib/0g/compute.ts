@@ -1,4 +1,3 @@
-import { createZGComputeNetworkBroker } from "@0gfoundation/0g-compute-ts-sdk";
 import { getWallet } from "./server";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -15,7 +14,14 @@ export interface ComputeProof {
 
 let brokerPromise: Promise<any> | null = null;
 function broker() {
-  if (!brokerPromise) brokerPromise = createZGComputeNetworkBroker(getWallet() as any);
+  if (!brokerPromise) {
+    brokerPromise = (async () => {
+      // Lazy import — keeps the compute SDK off the module-load path (it crashes
+      // some serverless bundlers at import time). Only needed for verification.
+      const { createZGComputeNetworkBroker } = await import("@0gfoundation/0g-compute-ts-sdk");
+      return createZGComputeNetworkBroker(getWallet() as any);
+    })();
+  }
   return brokerPromise;
 }
 
