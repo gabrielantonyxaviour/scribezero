@@ -15,9 +15,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { WalletButton } from "@/components/shell/wallet-button";
 import { LiveDot } from "@/components/sz/live-dot";
 import { Copyable } from "@/components/sz/copyable";
-import { useWallet } from "@/components/providers/wallet-provider";
 import { DEMO_PROOF, DEMO_RECORD, DEMO_NOTE } from "@/lib/mock/data";
 import { truncHash, truncAddress } from "@/lib/format";
 
@@ -45,8 +45,6 @@ const OWNER = DEMO_RECORD.ownerAddress;
 /* ---------- page ---------- */
 
 export default function LandingPage() {
-  const { connect } = useWallet();
-
   return (
     <div className="min-h-screen bg-bg text-ink">
       {/* sticky marketing chrome */}
@@ -66,9 +64,7 @@ export default function LandingPage() {
             >
               Verify
             </a>
-            <Button variant="outline" size="sm" onClick={connect}>
-              Connect wallet
-            </Button>
+            <WalletButton />
           </nav>
         </div>
       </header>

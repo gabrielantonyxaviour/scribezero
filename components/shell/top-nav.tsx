@@ -16,9 +16,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 
 const LINKS = [
+  { href: "/dashboard", label: "Today" },
   { href: "/app", label: "Scribe" },
+  { href: "/patients", label: "Patients" },
   { href: "/records", label: "Records" },
   { href: "/verify", label: "Verify" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function TopNav({ walletless = false }: { walletless?: boolean }) {

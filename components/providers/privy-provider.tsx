@@ -24,9 +24,9 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
     <Privy
       appId={APP_ID}
       config={{
-        // The modal offers BOTH: email/Google -> one-tap embedded wallet (no gas, no extension),
-        // and "Continue with a wallet" -> Brave/MetaMask/WalletConnect.
-        loginMethods: ["email", "google", "wallet"],
+        // The default Privy login modal is only for the embedded-account path.
+        // Existing wallets are routed through connectWallet() from our first-party chooser.
+        loginMethods: ["email", "google"],
         appearance: {
           theme: "dark",
           accentColor: "#84c4a0",
