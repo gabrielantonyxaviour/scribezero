@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { DEMO_SEGMENTS, DEMO_RECORD } from "@/lib/mock/data";
 import { SEAL_STEPS, type StepId, type StepStatus } from "@/lib/mock/services";
 import { sealConsultSmart, type SmartSealResult } from "@/lib/services";
+import { useWallet } from "@/components/providers/wallet-provider";
 import { truncHash, truncAddress } from "@/lib/format";
 
 type Phase = "idle" | "recording" | "ready" | "sealing" | "sealed";
@@ -30,6 +31,7 @@ const LANGS = [
 ];
 
 export default function ScribePage() {
+  const { address: ownerAddress, connected } = useWallet();
   const [phase, setPhase] = useState<Phase>("idle");
   const [lang, setLang] = useState("ta");
   const [shown, setShown] = useState(0);
@@ -74,13 +76,16 @@ export default function ScribePage() {
 
   const generate = useCallback(async () => {
     setPhase("sealing");
-    const r = await sealConsultSmart((id, status, ms) => {
-      setSteps((s) => ({ ...s, [id]: status }));
-      if (ms) setDurations((d) => ({ ...d, [id]: ms }));
-    });
+    const r = await sealConsultSmart(
+      (id, status, ms) => {
+        setSteps((s) => ({ ...s, [id]: status }));
+        if (ms) setDurations((d) => ({ ...d, [id]: ms }));
+      },
+      connected ? ownerAddress : undefined,
+    );
     setResult(r);
     setPhase("sealed");
-  }, []);
+  }, [connected, ownerAddress]);
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
   const visible = DEMO_SEGMENTS.slice(0, shown);

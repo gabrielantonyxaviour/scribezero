@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { LenisProvider } from "@/components/providers/lenis-provider";
 import { WalletProvider } from "@/components/providers/wallet-provider";
+import { PrivyProvider } from "@/components/providers/privy-provider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -48,12 +49,14 @@ export default function RootLayout({
       className={`dark ${inter.variable} ${mono.variable} ${serif.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-bg text-ink flex flex-col">
-        <WalletProvider>
-          <TooltipProvider delayDuration={150}>
-            <LenisProvider>{children}</LenisProvider>
-          </TooltipProvider>
-          <Toaster position="bottom-right" />
-        </WalletProvider>
+        <PrivyProvider>
+          <WalletProvider>
+            <TooltipProvider delayDuration={150}>
+              <LenisProvider>{children}</LenisProvider>
+            </TooltipProvider>
+            <Toaster position="bottom-right" />
+          </WalletProvider>
+        </PrivyProvider>
       </body>
     </html>
   );

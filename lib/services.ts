@@ -121,8 +121,15 @@ async function sealReal(onStep: StepFn, address: string): Promise<SmartSealResul
   };
 }
 
-/** Uses real 0G when the wallet is funded, else the deterministic mock. */
-export async function sealConsultSmart(onStep: StepFn): Promise<SmartSealResult> {
+/**
+ * Uses real 0G when the wallet is funded, else the deterministic mock.
+ * `owner` (the connected Privy wallet) becomes the record's owner; the app's
+ * funded wallet still pays the storage gas, so any connected wallet works gas-free.
+ */
+export async function sealConsultSmart(
+  onStep: StepFn,
+  owner?: string,
+): Promise<SmartSealResult> {
   let status: { mode?: string; address?: string } = { mode: "mock" };
   try {
     status = await fetch("/api/status").then((r) => r.json());
@@ -131,11 +138,15 @@ export async function sealConsultSmart(onStep: StepFn): Promise<SmartSealResult>
   }
   if (status?.mode === "live" && status.address) {
     try {
-      return await sealReal(onStep, status.address);
+      return await sealReal(onStep, owner || status.address);
     } catch {
       /* fall back to mock on any live error */
     }
   }
   const r = await sealConsult(onStep);
-  return { ...r, mode: "mock" };
+  return {
+    ...r,
+    record: owner ? { ...r.record, ownerAddress: owner } : r.record,
+    mode: "mock",
+  };
 }
