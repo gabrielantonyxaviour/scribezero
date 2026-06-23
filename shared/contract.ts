@@ -1,7 +1,7 @@
 /**
  * ScribeZero — shared contract. Forked from VeriScribe's medical seam, retargeted to 0G.
  * Same ConsultNote/Transcript shapes (so the two projects stay compatible), but provenance
- * is 0G Storage (Merkle root hash = ownership handle) + 0G Compute TeeTLS proof.
+ * is 0G Storage (Merkle root hash = ownership handle) + 0G Compute TEE proof.
  * DO NOT import private Larinova code. The 0G layer must do REAL work (no bolt-ons).
  */
 
@@ -20,7 +20,9 @@ export interface TranscriptionResult {
   transcript: string;
   segments: TranscriptSegment[];
   language?: string;
-  provider: "sarvam" | "deepgram";
+  provider: "0g-router" | "sarvam" | "deepgram";
+  proofId?: string;
+  proofVerified?: boolean | null;
 }
 
 // ---- The finished clinical note (the owned artifact) ----
@@ -44,25 +46,29 @@ export interface OwnedRecord {
   noteId: string;
   noteHash: `0x${string}`;
   zgStorageRootHash: string; // 0G Storage Merkle root = the ownership handle
-  teeTlsProof: string; // 0G Compute signed routing proof (binds request+response+provider)
+  teeTlsProof: string; // 0G Compute proof id/signature (binds request+response+provider)
   ownerAddress: string; // patient owns the record
   storedAt: string; // ISO
+  storageTxHash?: string;
+  chainId?: number;
+  computeProvider?: string;
+  computeModel?: string;
 }
 
 export interface VerificationResult {
   noteId: string;
   hashMatches: boolean; // recomputed note hash == stored
-  proofValid: boolean; // TeeTLS routing proof verifies
+  proofValid: boolean; // 0G Compute TEE proof verifies
   storageReachable: boolean; // 0G storage root resolves
 }
 
 /**
- * Note-gen seam. The LLM call MUST route through 0G Compute (TeeTLS) so 0G is load-bearing
+ * Note-gen seam. The LLM call MUST route through 0G Compute TEE mode so 0G is load-bearing
  * and the inference is verifiable — this is the eligibility unlock, not a cosmetic badge.
  */
 export interface NoteGenService {
   transcribe(audio: ArrayBuffer, language: "hi" | "ta" | "en"): Promise<TranscriptionResult>;
-  // Runs the SOAP-generation LLM call via 0G Compute TeeTLS; returns note + the proof.
+  // Runs the SOAP-generation LLM call via 0G Compute TEE; returns note + the proof.
   generateNoteVerifiable(
     t: TranscriptionResult,
     chiefComplaint?: string

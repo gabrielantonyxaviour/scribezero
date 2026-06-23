@@ -1,79 +1,148 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "motion/react";
 import {
+  AlertTriangle,
   ShieldCheck,
   CircleCheck,
-  Lock,
   Info,
-  Eye,
-  ExternalLink,
-  Share2,
   Loader2,
 } from "lucide-react";
 import { AppShell } from "@/components/shell/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LiveDot } from "@/components/sz/live-dot";
-import { CheckRow } from "@/components/sz/check-row";
-import { Copyable } from "@/components/sz/copyable";
-import {
-  DEMO_NOTE,
-  DEMO_PROOF,
-  DEMO_RECORD,
-  DEMO_VERIFICATION,
-  DEMO_CONSULT,
-} from "@/lib/mock/data";
-import { NETWORK, COMPUTE } from "@/lib/constants";
+import { VerifyResult, type PublicVerifyFact } from "@/components/sz/verify-result";
 import {
   truncHash,
-  truncMid,
-  truncAddress,
   formatIST,
   LANGUAGE_LABEL,
 } from "@/lib/format";
+import { summarizeProofReceipt } from "@/lib/proof/receipt";
+import type { ConsultNote, VerificationResult } from "@/shared/contract";
+import {
+  ciphertextHash,
+  isEncryptedRecordArtifact,
+  type EncryptedRecordArtifact,
+} from "@/lib/records/encrypted-artifact";
 
 type Phase = "idle" | "checking" | "verified";
 
-const PUBLIC_FACTS: { label: string; value: string; copy?: boolean }[] = [
-  {
-    label: "storage root",
-    value: DEMO_RECORD.zgStorageRootHash,
-    copy: true,
-  },
-  {
-    label: "owner address",
-    value: DEMO_RECORD.ownerAddress,
-    copy: true,
-  },
-  {
-    label: "created",
-    value: formatIST(DEMO_NOTE.createdAt),
-  },
-  {
-    label: "inference",
-    value: "0G Compute · TeeTLS",
-  },
-  {
-    label: "language",
-    value: LANGUAGE_LABEL[DEMO_NOTE.language],
-  },
-  {
-    label: "consultation",
-    value: DEMO_CONSULT.code,
-  },
-];
+type VerifiedRoot = {
+  note?: ConsultNote;
+  artifact?: EncryptedRecordArtifact;
+  verification: VerificationResult;
+  proof: ReturnType<typeof summarizeProofReceipt>;
+  publicFacts: PublicVerifyFact[];
+  noteHash: `0x${string}`;
+  elapsedMs: number;
+};
+
+function isRootHash(value: string) {
+  return /^0x[a-fA-F0-9]{64}$/.test(value.trim());
+}
+
+function asNote(payload: unknown): ConsultNote | null {
+  const candidate =
+    payload && typeof payload === "object" && "note" in payload
+      ? (payload as { note?: unknown }).note
+      : payload;
+  if (!candidate || typeof candidate !== "object") return null;
+  const note = candidate as Partial<ConsultNote>;
+  return typeof note.id === "string" &&
+    typeof note.summary === "string" &&
+    typeof note.noteHash === "string" &&
+    typeof note.createdAt === "string"
+    ? (note as ConsultNote)
+    : null;
+}
 
 export default function VerifyPage() {
-  const [root, setRoot] = useState(DEMO_RECORD.zgStorageRootHash);
+  const [root, setRoot] = useState(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("root") ?? "" : "",
+  );
   const [phase, setPhase] = useState<Phase>("idle");
+  const [result, setResult] = useState<VerifiedRoot | null>(null);
+  const [error, setError] = useState("");
 
-  function handleVerify() {
+  async function handleVerify() {
     if (phase === "checking") return;
+    setError("");
+    setResult(null);
+    const rootHash = root.trim();
+    if (!isRootHash(rootHash)) {
+      setError("Paste a valid 0G Storage root: 0x followed by 64 hex characters.");
+      return;
+    }
     setPhase("checking");
-    window.setTimeout(() => setPhase("verified"), 1400);
+    const t0 = Date.now();
+    try {
+      const download = await fetch(`/api/0g/download?root=${encodeURIComponent(rootHash)}`);
+      const text = await download.text();
+      if (!download.ok) throw new Error(text || `0G download failed with ${download.status}`);
+      const payload = JSON.parse(text) as unknown;
+      const encrypted = isEncryptedRecordArtifact(payload) ? payload : null;
+      const note = encrypted ? null : asNote(payload);
+      if (!encrypted && !note) {
+        throw new Error("0G root did not contain a ScribeZero note or encrypted record artifact.");
+      }
+
+      const verifyBody = encrypted
+        ? { rootHash }
+        : {
+            rootHash,
+            summary: note?.summary,
+            noteHash: note?.noteHash,
+            proofValid: false,
+          };
+      const verify = await fetch("/api/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(verifyBody),
+      });
+      const verification = (await verify.json()) as Omit<VerificationResult, "noteId"> & { error?: string };
+      if (!verify.ok || verification.error) {
+        throw new Error(verification.error || `0G verification failed with ${verify.status}`);
+      }
+      const encryptedHashMatches = encrypted
+        ? ciphertextHash(encrypted.ciphertext) === encrypted.encryption.ciphertextHash
+        : verification.hashMatches;
+      const computeLive = encrypted?.public.computeProof.verified === true;
+      const proof = summarizeProofReceipt({
+        noteHashMatches: encryptedHashMatches,
+        computeProofValid: computeLive,
+        storageReachable: verification.storageReachable,
+        computeMode: computeLive ? "live" : "fallback",
+        storageMode: verification.storageReachable ? "live" : "fallback",
+      });
+      const noteId = encrypted?.public.noteId ?? note?.id ?? "unknown";
+      const noteHash = (encrypted?.public.noteHash ?? note?.noteHash) as `0x${string}`;
+      const createdAt = encrypted?.public.createdAt ?? note?.createdAt ?? new Date().toISOString();
+      const language = encrypted?.public.language ?? note?.language ?? "en";
+      const publicFacts: PublicVerifyFact[] = [
+        { label: "storage root", value: rootHash, copy: true },
+        { label: "note id", value: noteId, copy: true },
+        { label: "created", value: formatIST(createdAt) },
+        { label: "verification result", value: `${proof.verdict} · ${proof.modeLabel}` },
+        { label: "language", value: LANGUAGE_LABEL[language] },
+      ];
+      if (encrypted) {
+        publicFacts.splice(2, 0, { label: "owner address", value: encrypted.public.ownerAddress, copy: true });
+      }
+      setResult({
+        note: note ?? undefined,
+        artifact: encrypted ?? undefined,
+        verification: { noteId, ...verification, hashMatches: encryptedHashMatches, proofValid: computeLive },
+        proof,
+        publicFacts,
+        noteHash,
+        elapsedMs: Date.now() - t0,
+      });
+      setPhase("verified");
+    } catch (err) {
+      setError((err as Error).message);
+      setPhase("idle");
+    }
   }
 
   const checking = phase === "checking";
@@ -82,7 +151,6 @@ export default function VerifyPage() {
   return (
     <AppShell walletless contained={false}>
       <div className="mx-auto w-full max-w-[660px] px-5 pb-16 pt-10 sm:pt-14">
-        {/* Editorial hero */}
         <header className="text-center">
           <div className="ds-eyebrow inline-flex items-center gap-1.5 text-ink-muted">
             <ShieldCheck className="size-3.5" />
@@ -100,7 +168,6 @@ export default function VerifyPage() {
           </p>
         </header>
 
-        {/* Verify card */}
         <section className="mt-7 rounded-xl border border-border bg-surface-1 p-4 sm:p-[18px]">
           <Label
             htmlFor="verify-root"
@@ -158,133 +225,40 @@ export default function VerifyPage() {
           </div>
         </section>
 
-        {/* Verified result */}
-        {verified ? (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {/* Result header */}
-            <div className="mb-3.5 mt-7 flex items-center justify-between px-0.5">
-              <div className="flex items-center gap-2.5">
-                <LiveDot size={8} />
-                <span className="text-[15px] font-medium text-ink">
-                  Verified
-                </span>
-                <span className="ds-mono rounded-full border border-jade/30 bg-jade-soft px-2.5 py-0.5 text-[11px] text-jade">
-                  3 / 3 checks passed
-                </span>
+        {error ? (
+          <div className="mt-4 rounded-xl border border-vermillion/40 bg-vermillion/10 p-4 text-sm text-ink">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-vermillion" />
+              <div>
+                <p className="font-medium text-vermillion">Verification failed</p>
+                <p className="mt-1 text-ink-muted">{error}</p>
               </div>
-              <span className="ds-mono text-[11px] text-ink-dim">
-                verified in 1.84s
-              </span>
             </div>
+          </div>
+        ) : null}
 
-            {/* Three checks */}
-            <div className="divide-y divide-border rounded-xl border border-border bg-surface-1 px-[18px]">
-              <CheckRow
-                title="Note hash matches"
-                detail="Re-computed SHA-256 equals the value stored on 0G."
-                value={truncHash(DEMO_NOTE.noteHash)}
-              />
-              <CheckRow
-                title="TeeTLS routing proof valid"
-                detail="Signed inside the TEE — binds request, response and provider TLS."
-                value={`sig ${truncMid(DEMO_PROOF.routingSignature, 4, 2)}`}
-                subFacts={[
-                  {
-                    label: "Generated inside a TEE — attestation present",
-                    value: `${COMPUTE.attestation} · 0G Compute`,
-                  },
-                  {
-                    label: "Provider TLS fingerprint matched",
-                    value: truncMid(DEMO_PROOF.providerTlsFingerprint, 8, 4),
-                  },
-                ]}
-              />
-              <CheckRow
-                title="0G Storage reachable"
-                detail="Merkle root resolves on the testnet turbo indexer."
-                value="3 nodes"
-              />
-            </div>
-
-            {/* The only public facts */}
-            <div className="mt-[18px] rounded-xl border border-border bg-surface-2 p-4 sm:p-[18px]">
-              <div className="ds-eyebrow mb-4 flex items-center gap-1.5 text-ink-muted">
-                <Eye className="size-3.5" />
-                the only public facts
-              </div>
-              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-                {PUBLIC_FACTS.map((fact) => (
-                  <div key={fact.label}>
-                    <dt className="ds-eyebrow mb-1.5 text-ink-dim">
-                      {fact.label}
-                    </dt>
-                    <dd className="ds-mono text-[13px] text-ink">
-                      {fact.copy ? (
-                        <Copyable
-                          value={fact.value}
-                          display={
-                            fact.label === "owner address"
-                              ? truncAddress(fact.value)
-                              : truncMid(fact.value, 6, 6)
-                          }
-                          className="text-[13px] text-ink"
-                        />
-                      ) : (
-                        fact.value
-                      )}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-
-            {/* Privacy explainer */}
-            <div className="mt-4 flex items-start gap-2.5 px-0.5">
-              <Lock className="mt-0.5 size-4 shrink-0 text-ink-dim" />
-              <p className="text-[13px] leading-snug text-ink-muted">
-                The note stays{" "}
-                <span className="text-ink">encrypted and owned by the patient</span>
-                . The chief complaint, transcript, and SOAP note are never
-                exposed here — only the integrity above is publicly verifiable.
-              </p>
-            </div>
-
-            {/* Actions */}
-            <div className="mt-[18px] flex flex-col gap-2.5 sm:flex-row">
-              <Button
-                variant="outline"
-                size="lg"
-                className="ds-mono h-[42px] flex-1 text-[13px]"
-                asChild
-              >
-                <a
-                  href={`${NETWORK.explorer}/tx/${DEMO_RECORD.zgStorageRootHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink className="size-[15px]" />
-                  View on 0G explorer
-                </a>
-              </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                className="ds-mono h-[42px] flex-1 text-[13px]"
-                onClick={() => {
-                  navigator.clipboard?.writeText(
-                    typeof window !== "undefined" ? window.location.href : "",
-                  );
-                }}
-              >
-                <Share2 className="size-[15px]" />
-                Share this proof
-              </Button>
-            </div>
-          </motion.div>
+        {verified && result ? (
+          <VerifyResult
+            proof={result.proof}
+            noteHash={truncHash(result.noteHash)}
+            computeValue={
+              result.artifact?.public.computeProof.chatID
+                ? `proof ${truncHash(result.artifact.public.computeProof.chatID)}`
+                : "proof bundle not present in stored artifact"
+            }
+            computeSubFacts={
+              result.artifact
+                ? [
+                    { label: "Provider", value: result.artifact.public.computeProof.provider },
+                    { label: "TEE verified", value: "true" },
+                    { label: "Ciphertext hash", value: truncHash(result.artifact.encryption.ciphertextHash) },
+                  ]
+                : undefined
+            }
+            publicFacts={result.publicFacts}
+            durationMs={result.elapsedMs}
+            storageValue={truncHash(root)}
+          />
         ) : null}
       </div>
     </AppShell>

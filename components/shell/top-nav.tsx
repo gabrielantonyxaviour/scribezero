@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LockOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BrandLogo } from "@/components/shell/brand-logo";
 import { WalletButton } from "@/components/shell/wallet-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,9 +34,7 @@ export function TopNav({ walletless = false }: { walletless?: boolean }) {
     <header className="sticky top-0 z-40 w-full border-b border-border bg-bg">
       <div className="mx-auto flex h-14 max-w-[1200px] items-center justify-between px-5 lg:px-6">
         <div className="flex items-center gap-7">
-          <Link href="/app" className="ds-display text-[22px] leading-none text-ink">
-            ScribeZero
-          </Link>
+          <BrandLogo href="/app" size="lg" />
           <nav className="hidden items-center gap-6 md:flex">
             {LINKS.map((l) => (
               <Link
@@ -77,7 +76,9 @@ export function TopNav({ walletless = false }: { walletless?: boolean }) {
             </SheetTrigger>
             <SheetContent side="right" className="w-[80vw] border-border-strong bg-surface-1">
               <SheetHeader>
-                <SheetTitle className="ds-display text-2xl text-ink">ScribeZero</SheetTitle>
+                <SheetTitle className="text-left">
+                  <BrandLogo href="/app" size="lg" />
+                </SheetTitle>
               </SheetHeader>
               <nav className="flex flex-col gap-1 px-4">
                 {LINKS.map((l) => (

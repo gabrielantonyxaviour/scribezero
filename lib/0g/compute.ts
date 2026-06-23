@@ -56,8 +56,26 @@ async function ensureLedger(b: any) {
   }
 }
 
-const ROUTER_URL = process.env.ZEROG_COMPUTE_ROUTER || "https://router-api.0g.ai/v1";
-const ROUTER_MODEL = process.env.ZEROG_COMPUTE_MODEL || "glm-5.2";
+const ROUTER_URL =
+  process.env.ZEROG_COMPUTE_ROUTER || "https://router-api-testnet.integratenetwork.work/v1";
+const ROUTER_MODEL = process.env.ZEROG_COMPUTE_MODEL || "glm-5.1";
+const ROUTER_MAX_TOKENS = Number(process.env.ZEROG_COMPUTE_MAX_TOKENS || 900);
+
+function routerBody(messages: { role: string; content: string }[]) {
+  return {
+    model: ROUTER_MODEL,
+    messages,
+    temperature: 0.2,
+    max_tokens: ROUTER_MAX_TOKENS,
+    verify_tee: true,
+    chat_template_kwargs: { enable_thinking: false },
+  };
+}
+
+function messageText(data: any): string {
+  const message = data.choices?.[0]?.message;
+  return message?.content ?? message?.reasoning ?? "";
+}
 
 /**
  * Hosted 0G Compute Router path (router-api.0g.ai) — avoids the 3-0G broker ledger.
@@ -74,24 +92,27 @@ async function generateViaRouter(
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model: ROUTER_MODEL, messages, temperature: 0.2 }),
+    body: JSON.stringify(routerBody(messages)),
   });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`router ${res.status}: ${body.slice(0, 200)}`);
   }
   const data: any = await res.json();
-  const content: string = data.choices?.[0]?.message?.content ?? "";
+  const content = messageText(data);
   const provider: string = data.x_0g_trace?.provider ?? "";
-  const chatID: string = res.headers.get("ZG-Res-Key") || data.id || "";
+  const chatID: string = res.headers.get("ZG-Res-Key") || data.x_0g_trace?.request_id || data.id || "";
 
-  let verified: boolean | null = null;
+  let verified: boolean | null =
+    typeof data.x_0g_trace?.tee_verified === "boolean" ? data.x_0g_trace.tee_verified : null;
   if (provider && chatID) {
     try {
-      const b = await broker(); // read-only on-chain verification, no ledger needed
-      verified = await b.inference.processResponse(provider, chatID);
+      if (verified !== true) {
+        const b = await broker(); // read-only on-chain verification, no ledger needed
+        verified = await b.inference.processResponse(provider, chatID);
+      }
     } catch {
-      verified = null;
+      verified ??= null;
     }
   }
   return {
@@ -103,6 +124,7 @@ async function generateViaRouter(
       verified,
       requestHash: data?.x_0g_trace?.request_hash,
       responseHash: data?.x_0g_trace?.response_hash,
+      signature: data?.x_0g_trace?.request_id,
     },
   };
 }
@@ -129,20 +151,28 @@ export async function generateVerifiable(
     const res = await fetch(`${endpoint}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify({ model, messages, temperature: 0.2 }),
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.2,
+        max_tokens: ROUTER_MAX_TOKENS,
+        verify_tee: true,
+        chat_template_kwargs: { enable_thinking: false },
+      }),
     });
     if (!res.ok) {
       const body = await res.text();
       throw new Error(`compute ${res.status}: ${body.slice(0, 200)}`);
     }
     const data: any = await res.json();
-    const content: string = data.choices?.[0]?.message?.content ?? "";
-    const chatID: string = res.headers.get("ZG-Res-Key") || data.id || "";
-    let verified: boolean | null = null;
+    const content = messageText(data);
+    const chatID: string = res.headers.get("ZG-Res-Key") || data.x_0g_trace?.request_id || data.id || "";
+    let verified: boolean | null =
+      typeof data.x_0g_trace?.tee_verified === "boolean" ? data.x_0g_trace.tee_verified : null;
     try {
-      verified = await b.inference.processResponse(addr, chatID);
+      if (verified !== true) verified = await b.inference.processResponse(addr, chatID);
     } catch {
-      verified = null;
+      verified ??= null;
     }
     return {
       content,

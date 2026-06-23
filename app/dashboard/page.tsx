@@ -1,15 +1,15 @@
+"use client";
+
 import Link from "next/link";
-import { CalendarClock, CheckCircle2, ClipboardList, FileText, Mic, ShieldCheck } from "lucide-react";
+import { CalendarClock, ClipboardList, Database, FileText, Mic, ShieldCheck } from "lucide-react";
 
 import { AppShell } from "@/components/shell/app-shell";
+import { RequireDoctor } from "@/components/shell/require-doctor";
 import { Button } from "@/components/ui/button";
-import {
-  APPOINTMENTS,
-  DOCTOR_PROFILE,
-  ONBOARDING_STEPS,
-  TASKS,
-  patientName,
-} from "@/lib/mock/product";
+import { Copyable } from "@/components/sz/copyable";
+import { RealDataEmptyState } from "@/components/sz/real-data-empty-state";
+import { useDoctorProfile } from "@/lib/onboarding/store";
+import { truncAddress, truncHash } from "@/lib/format";
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -23,8 +23,15 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 }
 
 export default function DashboardPage() {
-  const openTasks = TASKS.filter((task) => task.status !== "done");
-  const completedSetup = ONBOARDING_STEPS.filter((step) => step.status === "done").length;
+  return (
+    <RequireDoctor>
+      <Dashboard />
+    </RequireDoctor>
+  );
+}
+
+function Dashboard() {
+  const doctor = useDoctorProfile();
 
   return (
     <AppShell>
@@ -35,7 +42,7 @@ export default function DashboardPage() {
             <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <h1 className="ds-display text-[36px] leading-none text-ink">
-                  Good morning, {DOCTOR_PROFILE.name}.
+                  Welcome, {doctor.name}.
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm text-ink-muted">
                   Your consult queue, patient follow-ups, and verified records are ready.
@@ -51,67 +58,69 @@ export default function DashboardPage() {
           </header>
 
           <Panel title="Today">
-            <div className="divide-y divide-border">
-              {APPOINTMENTS.map((appointment) => (
-                <Link
-                  key={appointment.id}
-                  href={`/patients/${appointment.patientId}`}
-                  className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[64px_1fr_150px]"
-                >
-                  <span className="ds-mono text-sm text-jade">{appointment.time}</span>
-                  <span>
-                    <span className="block text-sm font-medium text-ink">
-                      {patientName(appointment.patientId)}
-                    </span>
-                    <span className="mt-1 block text-xs text-ink-muted">{appointment.kind}</span>
-                  </span>
-                  <span className="text-xs text-ink-muted sm:text-right">{appointment.status}</span>
-                </Link>
-              ))}
-            </div>
+            <RealDataEmptyState
+              icon={CalendarClock}
+              title="No indexed visits yet"
+              body="New visits will appear here after their encrypted record roots are written to the real 0G index."
+            />
           </Panel>
 
           <Panel title="Clinical tasks">
-            <div className="grid gap-3 md:grid-cols-2">
-              {openTasks.map((task) => (
-                <Link
-                  key={task.id}
-                  href={`/patients/${task.patientId}`}
-                  className="rounded-md border border-border bg-surface-3 p-3 transition-colors hover:border-border-strong"
-                >
-                  <p className="text-sm font-medium text-ink">{task.title}</p>
-                  <p className="mt-2 ds-mono text-[11px] text-ink-dim">
-                    {patientName(task.patientId)} · {task.due}
-                  </p>
-                </Link>
-              ))}
-            </div>
+            <RealDataEmptyState
+              icon={ClipboardList}
+              title="No real follow-ups indexed"
+              body="Follow-up tasks will be generated from encrypted patient artifacts once the 0G KV patient index is configured."
+            />
           </Panel>
         </div>
 
         <aside className="space-y-5">
-          <Panel title="Setup">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-md border border-jade-deep bg-jade-soft">
-                <CheckCircle2 className="size-5 text-jade" />
-              </span>
-              <div>
-                <p className="text-sm font-medium text-ink">
-                  {completedSetup}/{ONBOARDING_STEPS.length} complete
-                </p>
-                <p className="text-xs text-ink-muted">Finish setup before the demo.</p>
-              </div>
-            </div>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/onboarding">Continue onboarding</Link>
-            </Button>
-          </Panel>
-
           <Panel title="Clinic">
             <div className="space-y-3 text-sm">
-              <Info icon={<ShieldCheck className="size-4" />} label={DOCTOR_PROFILE.clinic} />
-              <Info icon={<CalendarClock className="size-4" />} label={DOCTOR_PROFILE.location} />
-              <Info icon={<ClipboardList className="size-4" />} label={DOCTOR_PROFILE.languageLine} />
+              <Info icon={<ShieldCheck className="size-4" />} label={doctor.clinic} />
+              {doctor.city && (
+                <Info icon={<CalendarClock className="size-4" />} label={doctor.city} />
+              )}
+              <Info icon={<ClipboardList className="size-4" />} label={doctor.languageLine} />
+            </div>
+          </Panel>
+
+          <Panel title="Practice seal">
+            <div className="space-y-3 text-sm">
+              <Info
+                icon={<Database className="size-4" />}
+                label={
+                  doctor.profileStorageMode === "live" && doctor.profileRegistryTxHash
+                    ? "0G Storage + Chain live"
+                    : "Profile not registered on 0G Chain"
+                }
+              />
+              {doctor.profileRootHash ? (
+                <Copyable
+                  value={doctor.profileRootHash}
+                  display={`root ${truncHash(doctor.profileRootHash)}`}
+                  label="Profile root copied"
+                  className="text-[12px]"
+                />
+              ) : (
+                <p className="text-sm text-ink-muted">Complete onboarding to create a profile root.</p>
+              )}
+              {doctor.profileRegistryTxHash && (
+                <Copyable
+                  value={doctor.profileRegistryTxHash}
+                  display={`registry tx ${truncHash(doctor.profileRegistryTxHash)}`}
+                  label="Registry transaction copied"
+                  className="text-[12px]"
+                />
+              )}
+              {doctor.profileRegistryAddress && (
+                <Copyable
+                  value={doctor.profileRegistryAddress}
+                  display={`registry ${truncAddress(doctor.profileRegistryAddress)}`}
+                  label="Registry address copied"
+                  className="text-[12px]"
+                />
+              )}
             </div>
           </Panel>
 

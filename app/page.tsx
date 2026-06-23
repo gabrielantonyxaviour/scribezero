@@ -15,11 +15,10 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BrandLogo } from "@/components/shell/brand-logo";
 import { WalletButton } from "@/components/shell/wallet-button";
+import { AuthRedirect } from "@/components/shell/require-doctor";
 import { LiveDot } from "@/components/sz/live-dot";
-import { Copyable } from "@/components/sz/copyable";
-import { DEMO_PROOF, DEMO_RECORD, DEMO_NOTE } from "@/lib/mock/data";
-import { truncHash, truncAddress } from "@/lib/format";
 
 /* ---------- entrance (CSS on-load, visible by default) ---------- */
 
@@ -39,18 +38,16 @@ function Reveal({
   );
 }
 
-const STORAGE_ROOT = DEMO_RECORD.zgStorageRootHash;
-const OWNER = DEMO_RECORD.ownerAddress;
-
 /* ---------- page ---------- */
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-bg text-ink">
+      <AuthRedirect />
       {/* sticky marketing chrome */}
       <header className="sticky top-0 z-40 border-b border-border bg-bg/90">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-6">
-          <span className="ds-display text-[22px] leading-none text-ink">ScribeZero</span>
+          <BrandLogo href="/" size="lg" />
           <nav className="flex items-center gap-5">
             <a
               href="#how"
@@ -122,9 +119,9 @@ function Hero() {
         <div className="mt-[30px] flex items-stretch gap-[22px]">
           <HeroStat value="ta-IN · hi-IN" label="languages" />
           <div className="w-px bg-border" />
-          <HeroStat value="TeeTLS" label="verified inference" />
+          <HeroStat value="TEE" label="proof status" />
           <div className="w-px bg-border" />
-          <HeroStat value={truncHash(STORAGE_ROOT)} label="your root hash" />
+          <HeroStat value="encrypted" label="storage payload" />
         </div>
       </Reveal>
 
@@ -187,7 +184,7 @@ function LiveScribeCard() {
         <div className="min-w-0">
           <div className="ds-mono text-[11px] text-jade">sealed on 0G</div>
           <div className="ds-mono truncate text-[11px] text-ink-dim">
-            root {truncHash(STORAGE_ROOT)} · owner {truncAddress(OWNER)}
+            encrypted root and owner receipt appear after a real seal
           </div>
         </div>
       </div>
@@ -249,7 +246,7 @@ function HowItWorks() {
       num: "01",
       icon: <Mic className="size-[18px] text-ink-muted" />,
       title: "Speak the consult",
-      body: "Tamil or Hindi, doctor and patient. Sarvam streaming STT transcribes live and translates inline as you talk.",
+      body: "Tamil, Hindi or English through the browser microphone. 0G Router STT transcribes the audio and the app stops if the proof fails.",
       aside: (
         <StepAside>
           <div className="ds-mono mb-1.5 text-[11px] text-ink-dim">hi-IN · doctor</div>
@@ -261,8 +258,8 @@ function HowItWorks() {
     {
       num: "02",
       icon: <Cpu className="size-[18px] text-ink-muted" />,
-      title: "Structure inside 0G Compute",
-      body: "The note-generation call runs through a 0G Compute TeeTLS broker. The model writes Subjective, Objective, Assessment, Plan — and signs the run.",
+      title: "Check 0G Compute",
+      body: "The note-generation call must return a verified 0G Compute TEE proof. If it does not, ScribeZero does not create a record.",
       aside: (
         <StepAside>
           <div className="ds-mono mb-1.5 text-[11px] text-ink-dim">S · subjective</div>
@@ -280,9 +277,7 @@ function HowItWorks() {
       aside: (
         <StepAside>
           <div className="ds-mono mb-1.5 text-[11px] text-ink-dim">A · assessment</div>
-          <p className="text-[13px] text-ink">
-            {(DEMO_NOTE.assessment ?? "").split(".")[0]}
-          </p>
+          <p className="text-[13px] text-ink">Generated only from the verified transcript.</p>
         </StepAside>
       ),
     },
@@ -295,13 +290,8 @@ function HowItWorks() {
       aside: (
         <StepAside active>
           <div className="ds-mono mb-1.5 text-[11px] text-jade">storage root</div>
-          <Copyable
-            value={STORAGE_ROOT}
-            display={truncHash(STORAGE_ROOT)}
-            className="text-[12px] text-ink"
-            label="Storage root copied"
-          />
-          <p className="ds-mono mt-[5px] text-[11px] text-ink-dim">owner {truncAddress(OWNER)}</p>
+          <p className="ds-mono text-[12px] text-ink">returned after encrypted 0G upload</p>
+          <p className="ds-mono mt-[5px] text-[11px] text-ink-dim">owner is the connected wallet</p>
         </StepAside>
       ),
     },
@@ -372,9 +362,9 @@ function WhyOnlyOnG() {
           The privacy and ownership are the protocol — not a promise.
         </p>
         <p className="mt-4 max-w-[520px] text-[15px] text-ink-muted">
-          Two 0G primitives carry the whole guarantee. A signed TeeTLS routing proof says exactly
-          which model saw your words and what it returned. A 0G Storage Merkle root says the record
-          is yours and unaltered. Anyone can check both, no account needed.
+          Two 0G primitives carry the guarantee. The 0G Storage Merkle root says the record is yours
+          and unaltered. When 0G Compute returns a TEE proof, ScribeZero shows exactly which
+          provider handled the note-generation run. Anyone can check the visible proof state.
         </p>
       </Reveal>
 
@@ -382,24 +372,14 @@ function WhyOnlyOnG() {
         <Reveal index={1}>
           <ProofCard
             icon={<Award className="size-[17px] text-ink-muted" />}
-            title="TeeTLS routing proof"
-            body="The broker runs in a TEE and signs a proof binding the request, the response and the provider's TLS fingerprint."
+            title="0G Compute TEE proof"
+            body="The record is created only when 0G Compute returns a verified TEE proof binding the request, response and provider."
             rows={[
-              { label: "request hash", node: <ProofValue value={DEMO_PROOF.requestHash} /> },
-              { label: "response hash", node: <ProofValue value={DEMO_PROOF.responseHash} /> },
-              {
-                label: "tls fingerprint",
-                node: (
-                  <Copyable
-                    value={DEMO_PROOF.providerTlsFingerprint}
-                    display={`sha256:${DEMO_PROOF.providerTlsFingerprint.slice(0, 2)}…${DEMO_PROOF.providerTlsFingerprint.slice(-2)}`}
-                    className="text-[11px]"
-                    label="Fingerprint copied"
-                  />
-                ),
-              },
+              { label: "request", node: <ProofText value="hash returned by provider" /> },
+              { label: "response", node: <ProofText value="hash returned by provider" /> },
+              { label: "proof id", node: <ProofText value="stored in encrypted artifact metadata" /> },
             ]}
-            footer={{ label: "signature", value: "valid" }}
+            footer={{ label: "required status", value: "verified" }}
           />
         </Reveal>
 
@@ -407,23 +387,13 @@ function WhyOnlyOnG() {
           <ProofCard
             icon={<Database className="size-[17px] text-ink-muted" />}
             title="0G Storage Merkle root"
-            body="The note is content-addressed. Recompute the hash, resolve the root — if they match, nothing was changed."
+            body="The encrypted record artifact is content-addressed. The verifier downloads the root and checks the public receipt without reading the clinical note."
             rows={[
-              { label: "storage root", node: <ProofValue value={STORAGE_ROOT} /> },
-              { label: "note hash", node: <ProofValue value={DEMO_NOTE.noteHash} /> },
-              {
-                label: "owner",
-                node: (
-                  <Copyable
-                    value={OWNER}
-                    display={truncAddress(OWNER)}
-                    className="text-[11px]"
-                    label="Owner address copied"
-                  />
-                ),
-              },
+              { label: "storage root", node: <ProofText value="returned by 0G Storage" /> },
+              { label: "ciphertext hash", node: <ProofText value="recomputed by verifier" /> },
+              { label: "owner", node: <ProofText value="connected wallet address" /> },
             ]}
-            footer={{ label: "hash matches", value: "true" }}
+            footer={{ label: "payload", value: "encrypted" }}
           />
         </Reveal>
       </div>
@@ -444,8 +414,8 @@ function WhyOnlyOnG() {
   );
 }
 
-function ProofValue({ value }: { value: string }) {
-  return <Copyable value={value} display={truncHash(value)} className="text-[11px]" label="Copied" />;
+function ProofText({ value }: { value: string }) {
+  return <span className="ds-mono text-[11px] text-ink">{value}</span>;
 }
 
 function ProofCard({
@@ -543,13 +513,13 @@ function Footer() {
   return (
     <footer className="border-t border-border bg-surface-3">
       <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-4 px-6 py-[18px]">
-        <span className="ds-display text-[17px] text-ink">ScribeZero</span>
+        <BrandLogo href="/" size="sm" />
         <span className="ds-mono min-w-[200px] flex-1 text-center text-[11px] text-ink-dim">
-          Inference via 0G Compute TeeTLS · Records on 0G Storage
+          0G Storage live · Compute proof status shown
         </span>
         <div className="inline-flex items-center gap-[7px] rounded-full border border-border bg-surface-1 px-[11px] py-[5px]">
           <LiveDot size={7} />
-          <span className="ds-mono text-[11px] text-jade">0G testnet · live</span>
+          <span className="ds-mono text-[11px] text-jade">0G testnet</span>
         </div>
       </div>
     </footer>

@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "noEmit": false,
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "lib/onboarding/practice-profile.ts",
+    "lib/proof/receipt.ts",
+    "lib/records/encrypted-artifact.ts",
+    "tests/**/*.test.ts"
+  ]
+}

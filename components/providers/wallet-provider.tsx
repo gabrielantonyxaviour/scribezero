@@ -11,8 +11,10 @@ import {
 } from "react";
 import { useCreateWallet, usePrivy, useWallets } from "@privy-io/react-auth";
 import { toast } from "sonner";
+import { ZEROG_CHAIN_ID_HEX } from "@/lib/0g/registry";
 
 type WalletState = {
+  ready: boolean; // Privy SDK finished initializing
   connected: boolean;
   resolving: boolean;
   address: string;
@@ -23,6 +25,12 @@ type WalletState = {
   disconnect: () => void;
   copyAddress: () => void;
   manageWallet: () => void; // exportWallet() for embedded wallets
+  signMessage: (message: string) => Promise<string>;
+  sendTransaction: (tx: {
+    to: `0x${string}`;
+    data?: `0x${string}`;
+    value?: `0x${string}`;
+  }) => Promise<`0x${string}`>;
 };
 
 const WalletContext = createContext<WalletState | null>(null);
@@ -107,9 +115,54 @@ function PrivyWallet({ children }: { children: React.ReactNode }) {
       toast("Key export is available for embedded wallets");
     }
   }, [exportWallet]);
+  const signMessage = useCallback(
+    async (message: string) => {
+      const wallet = wallets[0];
+      if (!wallet) throw new Error("No wallet available for signing");
+      const provider = await wallet.getEthereumProvider();
+      return provider.request({
+        method: "personal_sign",
+        params: [message, wallet.address],
+      }) as Promise<string>;
+    },
+    [wallets],
+  );
+  const sendTransaction = useCallback(
+    async (tx: { to: `0x${string}`; data?: `0x${string}`; value?: `0x${string}` }) => {
+      const wallet = wallets[0];
+      if (!wallet) throw new Error("No wallet available for transaction signing");
+      const provider = await wallet.getEthereumProvider();
+      const currentChain = (await provider.request({ method: "eth_chainId" })) as string;
+      if (currentChain.toLowerCase() !== ZEROG_CHAIN_ID_HEX.toLowerCase()) {
+        try {
+          await provider.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: ZEROG_CHAIN_ID_HEX }],
+          });
+        } catch (error) {
+          throw new Error(
+            `Wallet is not on 0G testnet (${ZEROG_CHAIN_ID_HEX}); switch failed: ${(error as Error).message}`,
+          );
+        }
+      }
+      return provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet.address,
+            to: tx.to,
+            data: tx.data,
+            value: tx.value || "0x0",
+          },
+        ],
+      }) as Promise<`0x${string}`>;
+    },
+    [wallets],
+  );
 
   const value = useMemo<WalletState>(
     () => ({
+      ready,
       connected,
       resolving,
       address,
@@ -120,8 +173,11 @@ function PrivyWallet({ children }: { children: React.ReactNode }) {
       disconnect,
       copyAddress,
       manageWallet,
+      signMessage,
+      sendTransaction,
     }),
     [
+      ready,
       connected,
       resolving,
       address,
@@ -132,6 +188,8 @@ function PrivyWallet({ children }: { children: React.ReactNode }) {
       disconnect,
       copyAddress,
       manageWallet,
+      signMessage,
+      sendTransaction,
     ],
   );
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
@@ -141,6 +199,7 @@ function PrivyWallet({ children }: { children: React.ReactNode }) {
 function StubWallet({ children }: { children: React.ReactNode }) {
   const value = useMemo<WalletState>(
     () => ({
+      ready: true,
       connected: false,
       resolving: false,
       address: "",
@@ -151,6 +210,12 @@ function StubWallet({ children }: { children: React.ReactNode }) {
       disconnect: () => {},
       copyAddress: () => {},
       manageWallet: () => {},
+      signMessage: async () => {
+        throw new Error("Wallet not configured (set NEXT_PUBLIC_PRIVY_APP_ID)");
+      },
+      sendTransaction: async () => {
+        throw new Error("Wallet not configured (set NEXT_PUBLIC_PRIVY_APP_ID)");
+      },
     }),
     [],
   );

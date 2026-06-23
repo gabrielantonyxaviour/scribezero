@@ -1,72 +1,167 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import {
-  ArrowUpRight,
+  AlertTriangle,
   CircleCheck,
-  Loader2,
   Mic,
-  Play,
   ShieldCheck,
-  Share2,
   Square,
 } from "lucide-react";
 import { AppShell } from "@/components/shell/app-shell";
 import { Button } from "@/components/ui/button";
 import { LiveDot } from "@/components/sz/live-dot";
 import { Copyable } from "@/components/sz/copyable";
+import { LanguagePicker, StepRow, Waveform } from "@/components/sz/seal-progress";
 import { cn } from "@/lib/utils";
-import { DEMO_SEGMENTS, DEMO_RECORD } from "@/lib/mock/data";
-import { SEAL_STEPS, type StepId, type StepStatus } from "@/lib/mock/services";
-import { sealConsultSmart, type SmartSealResult } from "@/lib/services";
+import { SEAL_STEPS, sealConsultSmart, type SmartSealResult, type StepId, type StepStatus } from "@/lib/services";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { truncHash, truncAddress } from "@/lib/format";
+import type { TranscriptionResult } from "@/shared/contract";
 
-type Phase = "idle" | "recording" | "ready" | "sealing" | "sealed";
-const LANGS = [
-  { id: "ta", native: "தமிழ்" },
-  { id: "hi", native: "हिन्दी" },
-  { id: "en", native: "EN" },
-];
+type Phase = "idle" | "recording" | "transcribing" | "ready" | "sealing" | "sealed";
+type AppLanguage = "ta" | "hi" | "en";
+
+type RouterSttResponse = {
+  text: string;
+  language?: string;
+  provider: string;
+  chatID?: string;
+  verified?: boolean | null;
+};
 
 export default function ScribePage() {
-  const { address: ownerAddress, connected } = useWallet();
+  const { address: ownerAddress, connected, signMessage } = useWallet();
   const [phase, setPhase] = useState<Phase>("idle");
-  const [lang, setLang] = useState("ta");
-  const [shown, setShown] = useState(0);
+  const [lang, setLang] = useState<AppLanguage>("ta");
   const [elapsed, setElapsed] = useState(0);
+  const [error, setError] = useState("");
+  const [transcription, setTranscription] = useState<TranscriptionResult | null>(null);
   const [steps, setSteps] = useState<Record<StepId, StepStatus>>({
     route: "idle",
     generate: "idle",
     proof: "idle",
     persist: "idle",
+    index: "idle",
     sealed: "idle",
   });
   const [durations, setDurations] = useState<Partial<Record<StepId, number>>>({});
   const [result, setResult] = useState<SmartSealResult | null>(null);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const chunks = useRef<BlobPart[]>([]);
 
   const recording = phase === "recording";
 
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  useEffect(() => {
+    return () => {
+      stream.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
-  const start = useCallback(() => {
-    if (phase !== "idle") return;
-    setPhase("recording");
-    setShown(0);
-    setElapsed(0);
-    DEMO_SEGMENTS.forEach((_, i) => {
-      timers.current.push(
-        setTimeout(() => {
-          setShown(i + 1);
-          if (i === DEMO_SEGMENTS.length - 1) {
-            timers.current.push(setTimeout(() => setPhase("ready"), 700));
-          }
-        }, 650 + i * 950),
-      );
+  const resetSteps = useCallback(() => {
+    setSteps({
+      route: "idle",
+      generate: "idle",
+      proof: "idle",
+      persist: "idle",
+      index: "idle",
+      sealed: "idle",
     });
-  }, [phase]);
+    setDurations({});
+  }, []);
+
+  const transcribeRecording = useCallback(
+    async (blob: Blob) => {
+      setPhase("transcribing");
+      const form = new FormData();
+      const file = new File([blob], `scribezero-consult-${Date.now()}.webm`, {
+        type: blob.type || "audio/webm",
+      });
+      form.append("file", file);
+      form.append("language", lang);
+
+      const res = await fetch("/api/transcribe", { method: "POST", body: form });
+      const data = (await res.json().catch(() => null)) as RouterSttResponse | { error?: string } | null;
+      if (!data) {
+        throw new Error(`0G STT failed with ${res.status}`);
+      }
+      if ("error" in data) {
+        throw new Error(data.error || `0G STT failed with ${res.status}`);
+      }
+      if (!res.ok) {
+        throw new Error(`0G STT failed with ${res.status}`);
+      }
+      const stt = data as RouterSttResponse;
+      if (!stt.text?.trim()) {
+        throw new Error("0G STT returned an empty transcript");
+      }
+      if (stt.verified !== true) {
+        throw new Error(
+          `0G STT proof did not verify for provider ${stt.provider || "unknown"} and proof ${stt.chatID || "missing"}`,
+        );
+      }
+      setTranscription({
+        transcript: stt.text.trim(),
+        provider: "0g-router",
+        language: stt.language || lang,
+        proofId: stt.chatID,
+        proofVerified: stt.verified,
+        segments: [
+          {
+            id: `seg_${Date.now().toString(36)}`,
+            speaker: "unknown",
+            text: stt.text.trim(),
+            confidence: 1,
+            timestamp_start: 0,
+            timestamp_end: elapsed * 1000,
+            language: lang,
+          },
+        ],
+      });
+      setPhase("ready");
+    },
+    [elapsed, lang],
+  );
+
+  const start = useCallback(async () => {
+    if (phase !== "idle") return;
+    try {
+      setError("");
+      setResult(null);
+      setTranscription(null);
+      resetSteps();
+      setElapsed(0);
+      chunks.current = [];
+      const nextStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.current = nextStream;
+      const nextRecorder = new MediaRecorder(nextStream, { mimeType: "audio/webm" });
+      nextRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.current.push(event.data);
+      };
+      nextRecorder.onstop = () => {
+        const blob = new Blob(chunks.current, { type: "audio/webm" });
+        stream.current?.getTracks().forEach((track) => track.stop());
+        stream.current = null;
+        void transcribeRecording(blob).catch((err) => {
+          setError((err as Error).message);
+          setPhase("idle");
+        });
+      };
+      recorder.current = nextRecorder;
+      nextRecorder.start();
+      setPhase("recording");
+    } catch (err) {
+      setError(`Microphone capture failed: ${(err as Error).message}`);
+      setPhase("idle");
+    }
+  }, [phase, resetSteps, transcribeRecording]);
+
+  const stop = useCallback(() => {
+    if (recorder.current?.state === "recording") {
+      recorder.current.stop();
+    }
+  }, []);
 
   useEffect(() => {
     if (!recording) return;
@@ -75,23 +170,31 @@ export default function ScribePage() {
   }, [recording]);
 
   const generate = useCallback(async () => {
-    setPhase("sealing");
-    const r = await sealConsultSmart(
-      (id, status, ms) => {
-        setSteps((s) => ({ ...s, [id]: status }));
-        if (ms) setDurations((d) => ({ ...d, [id]: ms }));
-      },
-      connected ? ownerAddress : undefined,
-    );
-    setResult(r);
-    setPhase("sealed");
-  }, [connected, ownerAddress]);
+    if (!transcription) return;
+    try {
+      setError("");
+      resetSteps();
+      setPhase("sealing");
+      const r = await sealConsultSmart(
+        (id, status, ms) => {
+          setSteps((s) => ({ ...s, [id]: status }));
+          if (ms) setDurations((d) => ({ ...d, [id]: ms }));
+        },
+        connected ? ownerAddress : undefined,
+        transcription,
+        signMessage,
+      );
+      setResult(r);
+      setPhase("sealed");
+    } catch (err) {
+      setError((err as Error).message);
+      setPhase("ready");
+    }
+  }, [connected, ownerAddress, resetSteps, signMessage, transcription]);
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
-  const visible = DEMO_SEGMENTS.slice(0, shown);
-  const words = visible.reduce((n, s) => n + s.english.split(" ").length, 0);
-  const rec = result?.record ?? DEMO_RECORD;
-  const mode = result?.mode ?? "mock";
+  const words = transcription?.transcript.split(/\s+/).filter(Boolean).length ?? 0;
+  const rec = result?.record;
 
   return (
     <AppShell>
@@ -102,7 +205,6 @@ export default function ScribePage() {
           Tamil, Hindi or English — code-switch freely. The transcript runs live; the note is sealed inside 0G.
         </p>
 
-        {/* capture */}
         <div className="mt-6 rounded-xl border border-border bg-surface-1 p-4">
           <div className="flex flex-wrap items-center gap-4">
             <button
@@ -118,114 +220,85 @@ export default function ScribePage() {
             >
               <Mic className={cn("size-5", recording ? "text-jade" : "text-ink-muted")} />
             </button>
-
             <Waveform active={recording} />
-
-            <div className="ml-auto flex items-center gap-1.5">
-              {LANGS.map((l) => (
-                <button
-                  key={l.id}
-                  onClick={() => setLang(l.id)}
-                  className={cn(
-                    "ds-mono rounded-full border px-3 py-1 text-[11px] transition-colors",
-                    lang === l.id
-                      ? "border-jade text-jade"
-                      : "border-border text-ink-muted hover:text-ink",
-                  )}
-                >
-                  {l.native}
-                </button>
-              ))}
-            </div>
+            <LanguagePicker value={lang} onChange={(value) => setLang(value as AppLanguage)} />
           </div>
-
           <div className="mt-3 flex items-center justify-between">
             <span className="ds-mono text-[11px] text-ink-dim">
               {recording ? (
                 <span className="flex items-center gap-1.5 text-jade">
                   <LiveDot size={6} /> recording {mmss} · 44.1 kHz
                 </span>
+              ) : phase === "transcribing" ? (
+                "0G Router STT is transcribing and verifying the proof"
               ) : (
-                "auto-detects code-switching mid-sentence"
+                "real microphone capture only"
               )}
             </span>
             {phase === "idle" ? (
               <Button variant="outline" size="sm" onClick={start}>
-                <Play /> Play sample consult
+                <Mic /> Start recording
               </Button>
             ) : recording ? (
-              <Button variant="outline" size="sm" onClick={() => setPhase("ready")}>
+              <Button variant="outline" size="sm" onClick={stop}>
                 <Square /> Stop
               </Button>
             ) : null}
           </div>
         </div>
 
-        {/* live transcript */}
+        {error ? (
+          <div className="mt-4 rounded-xl border border-vermillion/40 bg-vermillion/10 p-4 text-sm text-ink">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-vermillion" />
+              <div>
+                <p className="font-medium text-vermillion">0G flow stopped</p>
+                <p className="mt-1 text-ink-muted">{error}</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-4 overflow-hidden rounded-xl border border-border bg-surface-3">
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <span className="ds-eyebrow !text-ink-dim">Live transcript</span>
             <span className="ds-mono flex items-center gap-1.5 text-[10px] text-jade">
               {recording ? <LiveDot size={6} /> : null}
-              {visible.length ? "Tamil → English" : "waiting for audio"}
+              {transcription ? `${transcription.provider} · verified` : "waiting for audio"}
             </span>
           </div>
-          {visible.length === 0 ? (
+          {!transcription ? (
             <div className="px-4 py-10 text-center text-sm text-ink-dim">
-              Press the mic (or play the sample) to begin.
+              Record a real consult to create a transcript through 0G Router STT.
             </div>
           ) : (
-            <div className="grid grid-cols-2">
-              <div className="space-y-3 border-r border-border px-4 py-3">
-                <p className="ds-mono text-[9px] uppercase tracking-[0.1em] text-ink-dim">தமிழ்</p>
-                {visible.map((s, i) => (
-                  <p key={s.id} className="text-[13px] leading-relaxed text-ink">
-                    <span className="ds-mono mb-0.5 block text-[9px] text-ink-dim">
-                      {s.speaker.toUpperCase()}
-                    </span>
-                    <span className={cn(s.lowConfidence && "border-b border-dotted border-amber/60 text-amber")}>
-                      {s.native}
-                    </span>
-                    {recording && i === visible.length - 1 && (
-                      <span className="ml-0.5 inline-block h-3.5 w-0.5 translate-y-0.5 animate-pulse bg-jade" />
-                    )}
-                  </p>
-                ))}
-              </div>
-              <div className="space-y-3 px-4 py-3">
-                <p className="ds-mono text-[9px] uppercase tracking-[0.1em] text-ink-dim">English</p>
-                {visible.map((s) => (
-                  <p key={s.id} className="text-[13px] leading-relaxed text-ink-muted">
-                    <span className="ds-mono mb-0.5 block text-[9px] text-ink-dim">
-                      {s.speaker.toUpperCase()}
-                    </span>
-                    {s.english}
-                  </p>
-                ))}
-              </div>
+            <div className="space-y-3 px-4 py-4">
+              <p className="ds-mono text-[9px] uppercase tracking-[0.1em] text-ink-dim">
+                {transcription.language || lang} · proof {transcription.proofId ? truncHash(transcription.proofId) : "verified"}
+              </p>
+              <p className="text-sm leading-relaxed text-ink">{transcription.transcript}</p>
             </div>
           )}
-          {visible.length > 0 && (
+          {transcription && (
             <div className="ds-mono flex items-center gap-3 border-t border-border px-4 py-2 text-[10px] text-ink-dim">
               <span>{words} words</span>
               <span>·</span>
-              <span>diarized · doctor / patient</span>
+              <span>0G Router STT proof verified</span>
               <span>·</span>
-              <span>ta-IN → en</span>
+              <span>{transcription.language || lang}</span>
             </div>
           )}
         </div>
 
-        {/* generate */}
         {(phase === "ready" || phase === "sealing" || phase === "sealed") && (
           <div className="mt-4">
             {phase === "ready" && (
               <>
                 <Button variant="live" className="h-11 w-full text-sm" onClick={generate}>
-                  <ShieldCheck /> Generate structured note
+                  <ShieldCheck /> Generate and seal on 0G
                 </Button>
                 <p className="ds-mono mt-2 text-center text-[11px] text-ink-dim">
-                  Routed through 0G Compute TeeTLS · sealed on 0G Storage
+                  Requires verified 0G Compute and confirmed 0G Storage. The app stops on failure.
                 </p>
               </>
             )}
@@ -243,7 +316,7 @@ export default function ScribePage() {
                     <StepRow
                       key={s.id}
                       label={s.label}
-                      detail={s.detail}
+                      detail={s.id === "sealed" && rec ? `bound to ${truncAddress(rec.ownerAddress)}` : s.detail}
                       status={steps[s.id]}
                       duration={durations[s.id]}
                     />
@@ -254,116 +327,43 @@ export default function ScribePage() {
           </div>
         )}
 
-        {/* owned receipt */}
-        {phase === "sealed" && (
+        {phase === "sealed" && rec && (
           <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-jade/25 bg-[#10160f] p-4">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-jade/50 bg-surface-2">
               <CircleCheck className="size-4.5 text-jade" />
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-ink">Verified &amp; owned on 0G</span>
-                {mode === "live" ? (
-                  <span className="ds-mono flex items-center gap-1 rounded-full border border-jade/30 bg-jade-soft px-2 py-0.5 text-[10px] text-jade">
-                    <LiveDot size={5} /> 0G testnet
-                  </span>
-                ) : mode === "storage" ? (
-                  <span className="ds-mono flex items-center gap-1 rounded-full border border-jade/30 bg-jade-soft px-2 py-0.5 text-[10px] text-jade">
-                    <LiveDot size={5} /> 0G Storage · live
-                  </span>
-                ) : (
-                  <span className="ds-mono rounded-full border border-border px-2 py-0.5 text-[10px] text-ink-dim">
-                    demo · mock 0G
-                  </span>
-                )}
+                <span className="text-sm font-medium text-ink">
+                  Verified & owned on 0G
+                </span>
+                <span className="ds-mono flex items-center gap-1 rounded-full border border-jade/30 bg-jade-soft px-2 py-0.5 text-[10px] text-jade">
+                  <LiveDot size={5} /> 0G testnet
+                </span>
               </div>
               <div className="ds-mono mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-dim">
-                {mode === "live" ? (
-                  <span>TeeTLS proof <span className="text-jade">✓</span> {truncHash(rec.teeTlsProof)}</span>
-                ) : (
-                  <span className="text-ink-dim">
-                    Compute · demo{mode === "storage" ? " (add key)" : ""}
-                  </span>
-                )}
+                <span>TEE proof <span className="text-jade">✓</span> {truncHash(rec.teeTlsProof)}</span>
                 <span>·</span>
                 <Copyable value={rec.zgStorageRootHash} display={`root ${truncHash(rec.zgStorageRootHash)}`} label="Storage root copied" />
                 <span>·</span>
+                {rec.storageTxHash ? (
+                  <>
+                    <Copyable value={rec.storageTxHash} display={`tx ${truncHash(rec.storageTxHash)}`} label="Storage tx copied" />
+                    <span>·</span>
+                  </>
+                ) : null}
+                {result.kvIndex?.txHash ? (
+                  <>
+                    <Copyable value={result.kvIndex.txHash} display={`kv ${truncHash(result.kvIndex.txHash)}`} label="KV index tx copied" />
+                    <span>·</span>
+                  </>
+                ) : null}
                 <span>owner {truncAddress(rec.ownerAddress)}</span>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <Button asChild variant="outline" size="sm">
-                <Link href="/records/note_sz4827ta">
-                  Open record <ArrowUpRight />
-                </Link>
-              </Button>
-              <Button asChild variant="live" size="sm">
-                <Link href="/r/HX7K2M">
-                  <Share2 /> Share
-                </Link>
-              </Button>
             </div>
           </div>
         )}
       </div>
     </AppShell>
-  );
-}
-
-function Waveform({ active }: { active: boolean }) {
-  const heights = [8, 18, 24, 13, 21, 9, 16, 23, 11, 19, 14, 7, 20, 12];
-  return (
-    <div className="flex h-7 items-end gap-[3px]">
-      {heights.map((h, i) => (
-        <span
-          key={i}
-          className={cn("w-[3px] rounded-full", active ? "animate-pulse bg-jade" : "bg-jade-deep/50")}
-          style={{ height: active ? h : Math.max(4, h / 3), animationDelay: `${i * 90}ms` }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function StepRow({
-  label,
-  detail,
-  status,
-  duration,
-}: {
-  label: string;
-  detail: string;
-  status: StepStatus;
-  duration?: number;
-}) {
-  return (
-    <div className="flex items-center gap-3 py-3">
-      <span className="flex size-6 shrink-0 items-center justify-center">
-        {status === "done" ? (
-          <CircleCheck className="size-5 text-jade" />
-        ) : status === "active" ? (
-          <Loader2 className="size-5 animate-spin text-jade" />
-        ) : status === "error" ? (
-          <span className="size-2 rounded-full bg-vermillion" />
-        ) : (
-          <span className="size-2 rounded-full bg-ink-dim/40" />
-        )}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className={cn("text-sm", status === "idle" ? "text-ink-dim" : "text-ink")}>{label}</div>
-        <div className="ds-mono text-[10px] text-ink-dim">{detail}</div>
-      </div>
-      <span className="ds-mono shrink-0 text-[10px] text-ink-dim">
-        {status === "done"
-          ? duration
-            ? `done · ${(duration / 1000).toFixed(1)}s`
-            : "done"
-          : status === "active"
-            ? "working…"
-            : status === "error"
-              ? "failed"
-              : "pending"}
-      </span>
-    </div>
   );
 }

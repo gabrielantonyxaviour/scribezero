@@ -89,7 +89,7 @@
   --color-vermillion: var(--vermillion);
   --color-vermillion-soft: var(--vermillion-soft);
 
-  --font-display: var(--font-instrument-serif);
+  --font-display: var(--font-inter);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jetbrains-mono);
 
@@ -119,11 +119,12 @@
   }
 }
 
-/* Editorial display — Instrument Serif italic carries the personality */
+/* Display text uses a clean sans stack for shadcn-native clinical UI. */
 .ds-display {
-  font-family: var(--font-display), Georgia, serif;
-  font-style: italic;
-  letter-spacing: -0.01em;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-style: normal;
+  letter-spacing: 0;
+  font-weight: 650;
   line-height: 1.04;
 }
 .ds-mono {

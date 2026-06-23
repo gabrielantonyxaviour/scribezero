@@ -1,17 +1,32 @@
-import type { ConsultNote, OwnedRecord, VerificationResult } from "@/shared/contract";
-import {
-  sealConsult,
-  type SealResult,
-  type StepId,
-  type StepStatus,
-} from "@/lib/mock/services";
-import { DEMO_NOTE } from "@/lib/mock/data";
+import type { ConsultNote, OwnedRecord, TranscriptionResult, VerificationResult } from "@/shared/contract";
 import { computeNoteHash } from "@/lib/hash";
+import {
+  buildEncryptedRecordArtifact,
+  type SignMessage,
+} from "@/lib/records/encrypted-artifact";
+import { buildStoredRecord } from "@/lib/records/local-record";
 
-export type SealMode = "live" | "storage" | "mock";
-export interface SmartSealResult extends SealResult {
+export type SealMode = "live";
+export type StepId = "route" | "generate" | "proof" | "persist" | "index" | "sealed";
+export type StepStatus = "idle" | "active" | "done" | "error";
+
+export const SEAL_STEPS: { id: StepId; label: string; detail: string }[] = [
+  { id: "route", label: "Route through 0G Compute", detail: "0G Router receives the transcript" },
+  { id: "generate", label: "Generate structured note", detail: "TEE-backed model returns SOAP JSON" },
+  { id: "proof", label: "Verify Compute proof", detail: "Broker verifies the response proof" },
+  { id: "persist", label: "Persist encrypted record", detail: "0G Storage returns a Merkle root and tx" },
+  { id: "index", label: "Index record handles", detail: "0G KV indexes owner, share code and proof handles" },
+  { id: "sealed", label: "Seal record", detail: "Hash, owner, proof, root and KV index agree" },
+];
+
+export interface SmartSealResult {
+  note: ConsultNote;
+  record: OwnedRecord;
+  verification: VerificationResult;
   mode: SealMode;
-  teeProof?: { provider: string; chatID: string; verified: boolean | null };
+  teeProof?: { provider: string; model?: string; chatID: string; verified: boolean | null };
+  shareCode?: string;
+  kvIndex?: { streamId: `0x${string}`; txHash: string; keys: string[] };
 }
 
 type StepFn = (id: StepId, status: StepStatus, ms?: number) => void;
@@ -22,131 +37,182 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.error ? `${url} -> ${detail.error}` : `${url} -> ${res.status}`);
+  }
   return res.json() as Promise<T>;
 }
 
 /**
- * Live path. Always persists to REAL 0G Storage (the wallet is funded). The note-gen
- * runs through REAL 0G Compute when a router key/ledger is available; otherwise the
- * local note is used but the record is still stored on-chain. Throws to the mock
- * fallback only if the 0G Storage upload itself fails.
+ * Live path. It fails closed: no local note, no placeholder record, and no storage-only
+ * completion. A sealed consult requires verified 0G Compute and reachable 0G Storage.
  */
-async function sealReal(onStep: StepFn, address: string): Promise<SmartSealResult> {
-  const transcript = DEMO_NOTE.transcript.transcript;
+async function sealReal(
+  onStep: StepFn,
+  address: string,
+  transcription: TranscriptionResult,
+  signMessage: SignMessage,
+): Promise<SmartSealResult> {
+  const transcript = transcription.transcript.trim();
+  if (!transcript) throw new Error("No transcript available to seal");
 
-  // 1. Note generation via 0G Compute (verifiable). Fall back to the local note if the
-  //    Compute key/ledger isn't present — Storage below stays real either way.
   onStep("route", "active");
   onStep("generate", "active");
-  let soap: Partial<ConsultNote> = {};
-  let proof: { provider: string; chatID: string; verified: boolean | null } = {
-    provider: "demo",
-    chatID: "",
-    verified: null,
-  };
-  let computeLive = false;
-  try {
-    const t0 = Date.now();
-    const ng = await postJson<{
-      soap: Partial<ConsultNote>;
-      proof: { provider: string; chatID: string; verified: boolean | null };
-    }>("/api/notegen", { transcript });
-    soap = ng.soap;
-    proof = ng.proof;
-    computeLive = true;
-    onStep("route", "done", 400);
-    onStep("generate", "done", Date.now() - t0);
-    onStep("proof", ng.proof.verified === false ? "error" : "done", 300);
-  } catch {
-    onStep("route", "done", 400);
-    onStep("generate", "done", 1200);
-    onStep("proof", "done", 300);
-  }
+  const t0 = Date.now();
+  const ng = await postJson<{
+    soap: Partial<ConsultNote>;
+    proof: { provider: string; model?: string; chatID: string; verified: boolean | null };
+  }>("/api/notegen", { transcript });
+  onStep("route", "done", 400);
+  onStep("generate", "done", Date.now() - t0);
 
-  const summary = soap.summary?.trim() || DEMO_NOTE.summary;
+  if (ng.proof.verified !== true) {
+    onStep("proof", "error", 300);
+    throw new Error(
+      `0G Compute proof did not verify for provider ${ng.proof.provider || "unknown"} and proof ${ng.proof.chatID || "missing"}`,
+    );
+  }
+  onStep("proof", "done", 300);
+
+  const summary = ng.soap.summary?.trim();
+  if (!summary) throw new Error("0G Compute returned an empty SOAP summary");
   const noteHash = computeNoteHash(summary);
   const note: ConsultNote = {
-    ...DEMO_NOTE,
-    chiefComplaint: soap.chiefComplaint || DEMO_NOTE.chiefComplaint,
-    subjective: soap.subjective || DEMO_NOTE.subjective,
-    objective: soap.objective || DEMO_NOTE.objective,
-    assessment: soap.assessment || DEMO_NOTE.assessment,
-    plan: soap.plan || DEMO_NOTE.plan,
+    id: `note_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`,
+    consultationCode: `SZ-${Date.now().toString(36).toUpperCase()}`,
+    createdAt: new Date().toISOString(),
+    language: transcription.language?.startsWith("hi") ? "hi" : transcription.language?.startsWith("en") ? "en" : "ta",
+    chiefComplaint: ng.soap.chiefComplaint ?? "",
+    subjective: ng.soap.subjective ?? "",
+    objective: ng.soap.objective ?? "Not documented in this consultation.",
+    assessment: ng.soap.assessment ?? "",
+    plan: ng.soap.plan ?? "",
     summary,
+    transcript: transcription,
     noteHash,
   };
 
-  // 2. Real 0G Storage upload — the ownership handle. Throws to mock if it fails.
   onStep("persist", "active");
   const tp = Date.now();
-  const st = await postJson<{ rootHash: string; txHash: string }>("/api/store", { note });
+  const artifact = await buildEncryptedRecordArtifact({
+    note,
+    ownerAddress: address,
+    computeProof: {
+      provider: ng.proof.provider,
+      model: ng.proof.model,
+      chatID: ng.proof.chatID,
+      verified: true,
+    },
+    signMessage,
+  });
+  const st = await postJson<{ rootHash: string; txHash: string }>("/api/store", { artifact });
   onStep("persist", "done", Date.now() - tp);
 
   const record: OwnedRecord = {
     noteId: note.id,
     noteHash,
     zgStorageRootHash: st.rootHash,
-    teeTlsProof: proof.chatID || "0g-storage",
+    teeTlsProof: ng.proof.chatID,
     ownerAddress: address,
     storedAt: new Date().toISOString(),
+    storageTxHash: st.txHash,
+    chainId: 16602,
+    computeProvider: ng.proof.provider,
+    computeModel: ng.proof.model,
   };
 
-  // 3. Verify — storage reachability is a real on-chain check.
-  let verification: VerificationResult = {
-    noteId: note.id,
-    hashMatches: true,
-    proofValid: proof.verified !== false,
-    storageReachable: true,
-  };
-  try {
-    const vf = await postJson<Omit<VerificationResult, "noteId">>("/api/verify", {
-      rootHash: st.rootHash,
-      summary,
-      noteHash,
-      proofValid: proof.verified !== false,
-    });
-    verification = { noteId: note.id, ...vf };
-  } catch {
-    /* keep optimistic defaults */
+  const vf = await postJson<Omit<VerificationResult, "noteId">>("/api/verify", {
+    rootHash: st.rootHash,
+    summary,
+    noteHash,
+    proofValid: true,
+  });
+  const verification = { noteId: note.id, ...vf };
+  if (!verification.hashMatches || !verification.proofValid || !verification.storageReachable) {
+    onStep("sealed", "error");
+    throw new Error(
+      `0G verification failed: hash=${verification.hashMatches}, compute=${verification.proofValid}, storage=${verification.storageReachable}`,
+    );
   }
+
+  onStep("index", "active");
+  const shareCode = shareCodeFor(note.consultationCode);
+  const indexed = await postJson<{
+    streamId: `0x${string}`;
+    txHash: string;
+    keys: string[];
+  }>("/api/records/index", {
+    storedRecord: buildStoredRecord({
+      note,
+      record,
+      verification,
+      mode: "live",
+      shareCode,
+      computeProof: {
+        provider: ng.proof.provider,
+        model: ng.proof.model,
+        chatID: ng.proof.chatID,
+        verified: true,
+      },
+    }),
+  });
+  onStep("index", "done");
 
   onStep("sealed", "done");
   return {
     note,
     record,
     verification,
-    mode: computeLive ? "live" : "storage",
-    teeProof: proof,
+    mode: "live",
+    teeProof: ng.proof,
+    shareCode,
+    kvIndex: indexed,
   };
 }
 
 /**
- * Uses real 0G when the wallet is funded, else the deterministic mock.
- * `owner` (the connected Privy wallet) becomes the record's owner; the app's
- * funded wallet still pays the storage gas, so any connected wallet works gas-free.
+ * Uses real 0G only. The connected Privy wallet is the record owner; failure to
+ * reach or verify 0G is surfaced to the UI instead of generating a placeholder record.
  */
 export async function sealConsultSmart(
   onStep: StepFn,
   owner?: string,
+  transcription?: TranscriptionResult,
+  signMessage?: SignMessage,
 ): Promise<SmartSealResult> {
-  let status: { mode?: string; address?: string } = { mode: "mock" };
+  if (!owner) throw new Error("Connect a wallet before sealing this consult");
+  if (!transcription?.transcript?.trim()) throw new Error("Record and transcribe audio before sealing");
+  if (!signMessage) throw new Error("Wallet signing is required to encrypt the record before 0G Storage");
+
+  let status: {
+    mode?: string;
+    address?: string;
+    funded?: boolean;
+    error?: string;
+    integrations?: {
+      storage?: { configured?: boolean };
+      computeRouter?: { configured?: boolean };
+      sttRouter?: { configured?: boolean };
+    };
+  } = {};
   try {
     status = await fetch("/api/status").then((r) => r.json());
-  } catch {
-    /* offline -> mock */
+  } catch (error) {
+    throw new Error(`0G status check failed: ${(error as Error).message}`);
   }
-  if (status?.mode === "live" && status.address) {
-    try {
-      return await sealReal(onStep, owner || status.address);
-    } catch {
-      /* fall back to mock on any live error */
-    }
+  if (!status.address || !status.integrations?.storage?.configured || !status.funded) {
+    throw new Error(
+      status?.error || "0G Storage signer is not configured or funded; encrypted record Storage cannot run",
+    );
   }
-  const r = await sealConsult(onStep);
-  return {
-    ...r,
-    record: owner ? { ...r.record, ownerAddress: owner } : r.record,
-    mode: "mock",
-  };
+  if (!status.integrations?.computeRouter?.configured) {
+    throw new Error("ZEROG_ROUTER_API_KEY is not set; 0G Compute cannot generate a verified SOAP note");
+  }
+  return sealReal(onStep, owner, transcription, signMessage);
+}
+
+function shareCodeFor(consultationCode: string) {
+  const clean = consultationCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return clean.slice(-6) || crypto.randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase();
 }

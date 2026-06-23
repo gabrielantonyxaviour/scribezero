@@ -1,85 +1,352 @@
-import Link from "next/link";
-import { Check, Languages, Mic, ShieldCheck, UserRound } from "lucide-react";
+"use client";
 
-import { AppShell } from "@/components/shell/app-shell";
-import { Button } from "@/components/ui/button";
-import { DOCTOR_PROFILE, ONBOARDING_STEPS } from "@/lib/mock/product";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
-const DETAILS = [
-  { label: "Doctor", value: DOCTOR_PROFILE.name, icon: UserRound },
-  { label: "Clinic", value: DOCTOR_PROFILE.clinic, icon: ShieldCheck },
-  { label: "Languages", value: DOCTOR_PROFILE.languageLine, icon: Languages },
-];
+import { useWallet } from "@/components/providers/wallet-provider";
+import { BrandLogo } from "@/components/shell/brand-logo";
+import {
+  readProgress,
+  writeProgress,
+  useOnboarding,
+  type DoctorProfile,
+} from "@/lib/onboarding/store";
+import { WalletButton } from "@/components/shell/wallet-button";
+import { ProgressBar } from "@/components/onboarding/progress-bar";
+import { StepIdentity } from "@/components/onboarding/step-identity";
+import { StepPractice } from "@/components/onboarding/step-practice";
+import { StepCredentials } from "@/components/onboarding/step-credentials";
+import { StepSampleConsult } from "@/components/onboarding/step-sample-consult";
+import { StepCelebration } from "@/components/onboarding/step-celebration";
+import type { ProfileSealState } from "@/components/onboarding/step-celebration";
+import { OnboardingAside } from "@/components/onboarding/onboarding-aside";
+import { buildPracticeProfileArtifact, profileArtifactHash } from "@/lib/onboarding/profile-artifact";
+import {
+  ZEROG_RPC,
+  encodeRegisterPracticeProfile,
+  requireRegistryAddress,
+  waitForRegistryReceipt,
+} from "@/lib/0g/registry";
+
+const TOTAL_STEPS = 5;
 
 export default function OnboardingPage() {
+  const router = useRouter();
+  const { ready, connected, resolving, address, sendTransaction } = useWallet();
+  const { save, status } = useOnboarding();
+  const [allowRerun] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("rerun") === "1",
+  );
+
+  const [step, setStep] = useState(1);
+  const [name, setName] = useState("");
+  const [clinic, setClinic] = useState("");
+  const [city, setCity] = useState("");
+  const [languages, setLanguages] = useState<string[]>(["Tamil", "Hindi", "English"]);
+  const [specialty, setSpecialty] = useState("");
+  const [motivation, setMotivation] = useState("Reduce after-hours note writing");
+  const [degrees, setDegrees] = useState("");
+  const [registrationNumber, setRegistrationNumber] = useState("");
+  const [registrationCouncil, setRegistrationCouncil] = useState("");
+  const [sampleConsultReviewed, setSampleConsultReviewed] = useState(false);
+  const [seal, setSeal] = useState<ProfileSealState>({ status: "idle" });
+  const [hydrated, setHydrated] = useState(false);
+  const finishing = useRef(false);
+
+  useEffect(() => {
+    if (ready && !connected && !resolving) router.replace("/");
+  }, [ready, connected, resolving, router]);
+
+  useEffect(() => {
+    if (ready && connected && status === "done" && !allowRerun) {
+      router.replace("/dashboard");
+    }
+  }, [allowRerun, ready, connected, router, status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (!address) {
+        setHydrated(true);
+        return;
+      }
+      const saved = readProgress(address);
+      if (saved) {
+        if (saved.step >= 1 && saved.step <= TOTAL_STEPS) setStep(saved.step);
+        if (saved.name) setName(saved.name);
+        if (saved.clinic) setClinic(saved.clinic);
+        if (saved.city) setCity(saved.city);
+        if (saved.languages?.length) setLanguages(saved.languages);
+        if (saved.specialty) setSpecialty(saved.specialty);
+        if (saved.motivation) setMotivation(saved.motivation);
+        if (saved.degrees) setDegrees(saved.degrees);
+        if (saved.registrationNumber) setRegistrationNumber(saved.registrationNumber);
+        if (saved.registrationCouncil) setRegistrationCouncil(saved.registrationCouncil);
+        if (saved.sampleConsultReviewed) setSampleConsultReviewed(saved.sampleConsultReviewed);
+      }
+      setHydrated(true);
+    });
+    return () => { cancelled = true; };
+  }, [address]);
+
+  useEffect(() => {
+    if (!hydrated || !address) return;
+    writeProgress(address, {
+      step,
+      name,
+      clinic,
+      city,
+      languages,
+      specialty,
+      motivation,
+      degrees,
+      registrationNumber,
+      registrationCouncil,
+      sampleConsultReviewed,
+    });
+  }, [
+    hydrated,
+    address,
+    step,
+    name,
+    clinic,
+    city,
+    languages,
+    specialty,
+    motivation,
+    degrees,
+    registrationNumber,
+    registrationCouncil,
+    sampleConsultReviewed,
+  ]);
+
+  function currentProfile(): DoctorProfile {
+    return {
+      name: name.trim(),
+      clinic: clinic.trim(),
+      city: city.trim(),
+      specialty: specialty.trim(),
+      languages,
+      motivation,
+      degrees: degrees.trim(),
+      registrationNumber: registrationNumber.trim(),
+      registrationCouncil: registrationCouncil.trim(),
+      sampleConsultReviewed,
+    };
+  }
+
+  async function sealProfile() {
+    if (!address || seal.status === "sealing") return;
+    setSeal({
+      status: "sealing",
+      stage: "checking",
+      message: "Checking 0G registry and wallet readiness",
+    });
+    const baseProfile = currentProfile();
+    const artifact = buildPracticeProfileArtifact(baseProfile, address);
+    const artifactHash = profileArtifactHash(artifact);
+
+    try {
+      const registryAddress = requireRegistryAddress();
+      await assertWalletHasGas(address);
+
+      setSeal({
+        status: "sealing",
+        stage: "storage",
+        message: "Uploading PracticeProfile artifact to 0G Storage",
+      });
+      const res = await fetch("/api/practice-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ artifact }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "upload failed");
+      const stored = (await res.json()) as {
+        rootHash: string;
+        txHash?: string;
+        storedAt: string;
+        mode: "live";
+      };
+      const data = encodeRegisterPracticeProfile({
+        rootHash: stored.rootHash,
+        artifactHash,
+        storageTxHash: stored.txHash,
+      });
+      setSeal({
+        status: "sealing",
+        stage: "signature",
+        message: "Waiting for your wallet to sign the 0G Chain registration",
+      });
+      const registryTxHash = await sendTransaction({ to: registryAddress, data });
+      setSeal({
+        status: "sealing",
+        stage: "confirming",
+        message: "Waiting for 0G Chain confirmation",
+      });
+      const receipt = await waitForRegistryReceipt(registryTxHash);
+      if (receipt.status !== "0x1") {
+        throw new Error(`0G registry transaction reverted: ${registryTxHash}`);
+      }
+      const nextProfile: DoctorProfile = {
+        ...baseProfile,
+        profileRootHash: stored.rootHash,
+        profileTxHash: stored.txHash,
+        profileArtifactHash: artifactHash,
+        profileStoredAt: stored.storedAt,
+        profileStorageMode: "live",
+        profileRegistryAddress: registryAddress,
+        profileRegistryTxHash: registryTxHash,
+        profileRegistryBlockNumber: receipt.blockNumber,
+      };
+      save(nextProfile);
+      setSeal({
+        status: "sealed",
+        mode: "live",
+        rootHash: stored.rootHash,
+        txHash: stored.txHash,
+        storedAt: stored.storedAt,
+        artifactHash,
+        registryAddress,
+        registryTxHash,
+        registryBlockNumber: receipt.blockNumber,
+      });
+    } catch (error) {
+      setSeal({
+        status: "error",
+        message: `0G profile registration failed: ${(error as Error).message}`,
+      });
+    }
+  }
+
+  function complete(dest: "/app" | "/dashboard") {
+    if (finishing.current || seal.status !== "sealed") return;
+    finishing.current = true;
+    const profile: DoctorProfile = {
+      ...currentProfile(),
+      profileRootHash: seal.rootHash,
+      profileTxHash: seal.txHash,
+      profileArtifactHash: seal.artifactHash,
+      profileStoredAt: seal.storedAt,
+      profileStorageMode: seal.mode,
+      profileRegistryAddress: seal.registryAddress,
+      profileRegistryTxHash: seal.registryTxHash,
+      profileRegistryBlockNumber: seal.registryBlockNumber,
+    };
+    save(profile);
+    router.replace(dest);
+  }
+
+  if (!ready || resolving || !connected) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg">
+        <div className="flex items-center gap-2 text-ink-muted">
+          <Loader2 className="size-4 animate-spin text-jade" />
+          <span className="ds-mono text-xs">loading onboarding</span>
+        </div>
+      </div>
+    );
+  }
+
+  const profile: DoctorProfile = {
+    name: name.trim() || "Doctor",
+    clinic: clinic.trim() || "Your clinic",
+    city: city.trim(),
+    specialty: specialty.trim(),
+    languages,
+    motivation,
+    degrees,
+    registrationNumber,
+    registrationCouncil,
+    sampleConsultReviewed,
+  };
+
   return (
-    <AppShell className="max-w-[920px]">
-      <header className="mb-6">
-        <p className="ds-eyebrow text-jade">Onboarding</p>
-        <h1 className="ds-display mt-2 text-[38px] leading-none text-ink">
-          Set up your scribe workspace.
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm text-ink-muted">
-          A short doctor-first setup. Confirm the basics, try a consult, and save one verified
-          record.
-        </p>
+    <div className="relative min-h-screen bg-bg text-ink">
+      <ProgressBar step={step} totalSteps={TOTAL_STEPS} />
+
+      <header className="flex items-center justify-between border-b border-border px-6 py-4 lg:px-8">
+        <BrandLogo href="/" size="lg" />
+        <WalletButton />
       </header>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
-        <section className="rounded-xl border border-border bg-surface-1">
-          <div className="border-b border-border px-5 py-4">
-            <p className="text-sm font-medium text-ink">Setup checklist</p>
+      <div className="grid lg:grid-cols-2">
+        <div className="flex min-h-[calc(100vh-65px)] flex-col justify-center px-6 py-10 lg:px-12">
+          <div className="w-full max-w-lg">
+            {step === 1 && (
+              <StepIdentity
+                values={{ name, clinic, city }}
+                onChange={(p) => {
+                  if (p.name !== undefined) setName(p.name);
+                  if (p.clinic !== undefined) setClinic(p.clinic);
+                  if (p.city !== undefined) setCity(p.city);
+                }}
+                onContinue={() => setStep(2)}
+              />
+            )}
+            {step === 2 && (
+              <StepPractice
+                values={{ languages, specialty, motivation }}
+                onChange={(p) => {
+                  if (p.languages !== undefined) setLanguages(p.languages);
+                  if (p.specialty !== undefined) setSpecialty(p.specialty);
+                  if (p.motivation !== undefined) setMotivation(p.motivation);
+                }}
+                onContinue={() => setStep(3)}
+                onBack={() => setStep(1)}
+              />
+            )}
+            {step === 3 && (
+              <StepCredentials
+                values={{ degrees, registrationNumber, registrationCouncil }}
+                onChange={(p) => {
+                  if (p.degrees !== undefined) setDegrees(p.degrees);
+                  if (p.registrationNumber !== undefined) setRegistrationNumber(p.registrationNumber);
+                  if (p.registrationCouncil !== undefined) setRegistrationCouncil(p.registrationCouncil);
+                }}
+                onContinue={() => setStep(4)}
+                onBack={() => setStep(2)}
+              />
+            )}
+            {step === 4 && (
+              <StepSampleConsult
+                onContinue={() => {
+                  setSampleConsultReviewed(true);
+                  setStep(5);
+                }}
+                onBack={() => setStep(3)}
+              />
+            )}
+            {step === 5 && (
+              <StepCelebration profile={profile} address={address} seal={seal} onSeal={sealProfile} onComplete={complete} />
+            )}
           </div>
-          <div className="divide-y divide-border">
-            {ONBOARDING_STEPS.map((step, index) => (
-              <div key={step.id} className="flex gap-4 px-5 py-4">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-3">
-                  {step.status === "done" ? (
-                    <Check className="size-4 text-jade" />
-                  ) : (
-                    <span className="ds-mono text-xs text-ink-muted">{index + 1}</span>
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-ink">{step.title}</p>
-                  <p className="mt-1 text-sm text-ink-muted">{step.body}</p>
-                </div>
-                <span className="ds-mono text-[11px] uppercase text-ink-dim">{step.status}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+        </div>
 
-        <aside className="space-y-5">
-          <section className="rounded-xl border border-border bg-surface-1 p-4">
-            <p className="ds-eyebrow text-ink-dim">Profile</p>
-            <div className="mt-4 space-y-4">
-              {DETAILS.map((item) => (
-                <div key={item.label} className="flex gap-3">
-                  <span className="flex size-9 items-center justify-center rounded-md border border-border bg-surface-3 text-jade">
-                    <item.icon className="size-4" />
-                  </span>
-                  <div>
-                    <p className="ds-mono text-[10px] uppercase text-ink-dim">{item.label}</p>
-                    <p className="mt-1 text-sm text-ink">{item.value}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-jade-deep bg-jade-soft p-4">
-            <Mic className="size-5 text-jade" />
-            <p className="mt-3 text-sm font-medium text-ink">Ready for the first consult</p>
-            <p className="mt-1 text-sm text-ink-muted">
-              Run the sample visit and seal a demo record to complete setup.
-            </p>
-            <Button asChild variant="live" className="mt-4 w-full">
-              <Link href="/app">Open scribe</Link>
-            </Button>
-          </section>
-        </aside>
+        <div className="hidden min-h-[calc(100vh-65px)] overflow-hidden border-l border-border bg-surface-3 lg:block">
+          <OnboardingAside step={step} />
+        </div>
       </div>
-    </AppShell>
+    </div>
   );
+}
+
+async function assertWalletHasGas(address: string) {
+  const res = await fetch(ZEROG_RPC, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_getBalance",
+      params: [address, "latest"],
+    }),
+  });
+  const json = (await res.json()) as { result?: string; error?: { message?: string } };
+  if (json.error) throw new Error(json.error.message || "0G wallet balance check failed");
+  const balance = BigInt(json.result || "0x0");
+  if (balance <= BigInt(0)) {
+    throw new Error(`Connected wallet ${address} has no native 0G for gas`);
+  }
 }

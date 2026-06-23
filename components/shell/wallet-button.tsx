@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -33,6 +34,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { truncAddress } from "@/lib/format";
 
 type SignInStep = "choice" | "email-code";
@@ -143,14 +145,14 @@ export function WalletButton() {
                 </label>
                 <div className="flex items-center gap-2 rounded-md border border-jade-deep bg-[#0d1d15] px-3 py-2">
                   <Mail className="size-4 shrink-0 text-jade" />
-                  <input
+                  <Input
                     id="scribezero-email"
                     type="email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     required
                     placeholder="doctor@email.com"
-                    className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-dim"
+                    className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 text-[14px] text-ink shadow-none focus-visible:ring-0"
                   />
                   <Button
                     type="submit"
@@ -164,51 +166,55 @@ export function WalletButton() {
                 <p className="mt-2 text-[12px] text-ink-muted">No wallet app needed.</p>
               </form>
 
-              <button
+              <Button
                 type="button"
                 onClick={continueWithGoogle}
                 disabled={oauthLoading}
-                className="flex h-12 w-full items-center gap-3 rounded-md border border-border bg-surface-1 px-4 text-left text-[14px] font-medium text-ink transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-60"
+                variant="outline"
+                className="h-12 w-full justify-start gap-3"
               >
                 <span className="flex size-7 items-center justify-center rounded bg-ink text-[13px] font-semibold text-bg">
                   G
                 </span>
                 Continue with Google
                 {oauthLoading && <Loader2 className="ml-auto size-3.5 animate-spin text-jade" />}
-              </button>
+              </Button>
 
-              <button
+              <Button
                 type="button"
                 onClick={chooseExternal}
-                className="flex h-12 w-full items-center gap-3 rounded-md border border-border bg-surface-1 px-4 text-left text-[14px] font-medium text-ink-muted transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-ink"
+                variant="outline"
+                className="h-12 w-full justify-start gap-3 text-ink-muted hover:text-ink"
               >
                 <span className="flex size-7 items-center justify-center rounded border border-border bg-surface-3">
                   <Wallet className="size-3.5" />
                 </span>
                 Use wallet app
-              </button>
+              </Button>
             </div>
           ) : (
             <form onSubmit={submitCode} className="space-y-3 p-3">
-              <button
+              <Button
                 type="button"
                 onClick={() => {
                   setStep("choice");
                   setCode("");
                   setMessage("");
                 }}
-                className="flex items-center gap-1.5 text-[12px] text-ink-muted transition-colors hover:text-ink"
+                variant="ghost"
+                size="sm"
+                className="h-7 justify-start px-0 text-[12px] text-ink-muted hover:bg-transparent hover:text-ink"
               >
                 <ArrowLeft className="size-3.5" />
                 Back
-              </button>
+              </Button>
               <div className="rounded-md border border-jade-deep bg-jade-soft p-3">
                 <label htmlFor="scribezero-code" className="text-[13px] font-medium text-ink">
                   Enter the code sent to {email}
                 </label>
                 <div className="mt-3 flex items-center gap-2 rounded-md border border-jade-deep bg-[#0d1d15] px-3 py-2">
                   <KeyRound className="size-4 shrink-0 text-jade" />
-                  <input
+                  <Input
                     id="scribezero-code"
                     type="text"
                     inputMode="numeric"
@@ -217,7 +223,7 @@ export function WalletButton() {
                     onChange={(event) => setCode(event.target.value.replace(/[^0-9]/g, ""))}
                     required
                     placeholder="123456"
-                    className="min-w-0 flex-1 bg-transparent text-[16px] tracking-[0.16em] text-ink outline-none placeholder:text-ink-dim"
+                    className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 text-[16px] tracking-[0.16em] text-ink shadow-none focus-visible:ring-0"
                   />
                   <Button
                     type="submit"
@@ -253,26 +259,30 @@ export function WalletButton() {
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-2 rounded-md border border-border-strong bg-surface-1 px-2 py-1 transition-colors hover:bg-surface-2">
+          <Button variant="outline" size="sm" className="h-8 px-2">
             <OwnerAvatar address={address} size={22} />
             <span className="ds-mono text-xs text-ink-muted">{truncAddress(address)}</span>
             <ChevronDown className="size-3.5 text-ink-dim" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem>
-            <User className="size-4" /> Profile
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={manageWallet}>
-            <KeyRound className="size-4" /> Manage wallet
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={copyAddress}>
-            <Copy className="size-4" /> Copy address
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuItem>
+              <User className="size-4" /> Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={manageWallet}>
+              <KeyRound className="size-4" /> Manage wallet
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={copyAddress}>
+              <Copy className="size-4" /> Copy address
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={disconnect} className="text-vermillion focus:text-vermillion">
-            <LogOut className="size-4" /> Disconnect
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuItem onClick={disconnect} className="text-vermillion focus:text-vermillion">
+              <LogOut className="size-4" /> Disconnect
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

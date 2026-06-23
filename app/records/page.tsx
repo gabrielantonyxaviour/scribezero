@@ -1,288 +1,178 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
-import { motion } from "motion/react";
-import {
-  Mic,
-  Languages,
-  CircleCheck,
-  Calendar,
-  ChevronDown,
-  ShieldCheck,
-  FileText,
-  Check,
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Database, FileText, Loader2, Mic, ShieldCheck } from "lucide-react";
 
 import { AppShell } from "@/components/shell/app-shell";
-import { RecordsList } from "@/components/sz/records-list";
+import { RequireDoctor } from "@/components/shell/require-doctor";
+import { NewConsultationCard } from "@/components/sz/new-consultation-card";
+import { RealDataEmptyState } from "@/components/sz/real-data-empty-state";
+import { Copyable } from "@/components/sz/copyable";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
-import { DEMO_RECORDS } from "@/lib/mock/data";
-import type { Lang, RecordStatus } from "@/lib/mock/data";
-
-const LANG_OPTIONS: { value: Lang; label: string }[] = [
-  { value: "ta", label: "ta-IN · Tamil" },
-  { value: "hi", label: "hi-IN · Hindi" },
-  { value: "en", label: "en-IN · English" },
-];
-
-const STATUS_OPTIONS: { value: RecordStatus; label: string }[] = [
-  { value: "verified", label: "Verified" },
-  { value: "pending", label: "Pending" },
-  { value: "failed", label: "Failed" },
-];
-
-const DATE_OPTIONS = [
-  { value: "all", label: "All time" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
-  { value: "jun", label: "June 2026" },
-] as const;
-
-type DateValue = (typeof DATE_OPTIONS)[number]["value"];
-
-function FilterTrigger({
-  icon: Icon,
-  label,
-  active,
-}: {
-  icon: typeof Languages;
-  label: string;
-  active?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex h-[38px] items-center gap-2 rounded-md border bg-surface-1 px-3 text-[13px] transition-colors",
-        active
-          ? "border-border-strong text-ink"
-          : "border-border text-ink-muted hover:border-border-strong",
-      )}
-    >
-      <Icon className="size-[15px] text-ink-dim" />
-      <span>{label}</span>
-      <ChevronDown className="size-3 text-ink-dim" />
-    </button>
-  );
-}
-
-function CheckItem({
-  label,
-  selected,
-  onClick,
-}: {
-  label: string;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-[13px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
-    >
-      <span>{label}</span>
-      {selected ? <Check className="size-3.5 text-jade" /> : null}
-    </button>
-  );
-}
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { useWallet } from "@/components/providers/wallet-provider";
+import { truncHash } from "@/lib/format";
+import type { RecordIndexEntry } from "@/lib/records/kv-index";
 
 export default function RecordsPage() {
-  const [query, setQuery] = useState("");
-  const [langs, setLangs] = useState<Lang[]>([]);
-  const [statuses, setStatuses] = useState<RecordStatus[]>([]);
-  const [dateRange, setDateRange] = useState<DateValue>("all");
+  return (
+    <RequireDoctor>
+      <Records />
+    </RequireDoctor>
+  );
+}
 
-  function toggleLang(l: Lang) {
-    setLangs((prev) =>
-      prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l],
-    );
-  }
-  function toggleStatus(s: RecordStatus) {
-    setStatuses((prev) =>
-      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
-    );
-  }
-  function resetFilters() {
-    setQuery("");
-    setLangs([]);
-    setStatuses([]);
-    setDateRange("all");
-  }
+function Records() {
+  const { address } = useWallet();
+  const [records, setRecords] = useState<RecordIndexEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const filtered = useMemo(() => {
-    const now = Date.now();
-    const q = query.trim().toLowerCase();
-    return DEMO_RECORDS.filter((r) => {
-      if (q && !r.complaint.toLowerCase().includes(q) && !r.code.toLowerCase().includes(q))
-        return false;
-      if (langs.length && !langs.includes(r.language)) return false;
-      if (statuses.length && !statuses.includes(r.status)) return false;
-      if (dateRange !== "all") {
-        const age = now - new Date(r.date).getTime();
-        const day = 86_400_000;
-        if (dateRange === "7d" && age > 7 * day) return false;
-        if (dateRange === "30d" && age > 30 * day) return false;
-        if (dateRange === "jun" && !r.date.startsWith("2026-06")) return false;
-      }
-      return true;
-    });
-  }, [query, langs, statuses, dateRange]);
-
-  const langActive = langs.length > 0;
-  const statusActive = statuses.length > 0;
-  const dateActive = dateRange !== "all";
+  useEffect(() => {
+    if (!address) return;
+    let active = true;
+    fetch(`/api/records/index?owner=${encodeURIComponent(address)}`)
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(body?.error || `0G KV index returned ${res.status}`);
+        return body as { records: RecordIndexEntry[] };
+      })
+      .then((body) => {
+        if (active) {
+          setRecords(body.records || []);
+          setError("");
+        }
+      })
+      .catch((err) => {
+        if (active) setError((err as Error).message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [address]);
 
   return (
-    <AppShell className="max-w-[920px]">
-      {/* Page header */}
-      <motion.header
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-        className="mb-6"
-      >
+    <AppShell className="max-w-[980px]">
+      <header className="mb-6">
         <h1 className="ds-display text-[34px] leading-[1.04] text-ink">My Records</h1>
         <p className="mt-1 text-[13px] text-ink-muted">
-          Your consultation notes — owned by you, verifiable by anyone.
+          Encrypted 0G Storage records, listed from the wallet-owned 0G KV proof index.
         </p>
-      </motion.header>
+      </header>
 
-      {/* New consultation hero */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
-        className="mb-6 flex flex-col gap-4 rounded-xl border border-border bg-surface-1 p-5 sm:flex-row sm:items-center sm:justify-between"
-      >
-        <div className="flex items-center gap-4">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-lg border border-jade-deep bg-surface-2">
-            <Mic className="size-[22px] text-jade" />
-          </span>
-          <div>
-            <div className="text-base font-medium text-ink">New consultation</div>
-            <p className="mt-0.5 text-[13px] text-ink-muted">
-              Speak Tamil, Hindi or English — get a structured note you own.
-            </p>
+      <NewConsultationCard />
+
+      {loading ? (
+        <div className="mt-5 flex items-center gap-2 rounded-xl border border-border bg-surface-1 p-4 text-sm text-ink-muted">
+          <Loader2 className="size-4 animate-spin text-jade" />
+          Reading 0G KV record index
+        </div>
+      ) : error ? (
+        <div className="mt-5 rounded-xl border border-amber/30 bg-amber-soft p-4 text-sm text-amber">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <p className="font-medium">0G KV index unavailable</p>
+              <p className="mt-1">{error}</p>
+            </div>
           </div>
         </div>
-        <Button asChild variant="live" size="lg" className="shrink-0">
-          <Link href="/app">
-            <Mic className="size-4" />
-            Start
+      ) : records.length ? (
+        <section className="mt-5 overflow-hidden rounded-xl border border-border bg-surface-1">
+          <div className="border-b border-border px-4 py-3">
+            <p className="ds-eyebrow text-ink-dim">0G KV index</p>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Record</TableHead>
+                <TableHead>Proof</TableHead>
+                <TableHead>Storage root</TableHead>
+                <TableHead className="text-right">Opened</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {records.map((record) => (
+                <TableRow key={`${record.ownerAddress}:${record.noteId}`}>
+                  <TableCell>
+                    <div className="min-w-[180px]">
+                      <Link
+                        href={`/records/${record.noteId}`}
+                        className="font-medium text-ink hover:text-jade"
+                      >
+                        {record.consultationCode}
+                      </Link>
+                      <p className="ds-mono mt-1 text-[11px] text-ink-dim">{record.noteId}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="outline" className="border-jade/30 text-jade">
+                        Compute {record.proof.computeMode}
+                      </Badge>
+                      <Badge variant="outline" className="border-jade/30 text-jade">
+                        Storage {record.proof.storageMode}
+                      </Badge>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Copyable
+                      value={record.storageRootHash}
+                      display={truncHash(record.storageRootHash)}
+                      label="Storage root copied"
+                      className="text-[12px]"
+                    />
+                  </TableCell>
+                  <TableCell className="text-right text-xs text-ink-muted">
+                    {new Date(record.createdAt).toLocaleDateString()}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </section>
+      ) : (
+        <RealDataEmptyState
+          icon={Database}
+          title="No indexed records yet"
+          body="Create a real consultation. After 0G Compute, encrypted 0G Storage, verification, and KV indexing all succeed, the proof handles will appear here."
+          detail="Clinical plaintext is not stored in the KV index; only owner, share code, hashes, roots, proof ids, and timestamps are indexed."
+          primaryLabel="Create encrypted record"
+        />
+      )}
+
+      <div className="mt-5 flex flex-col gap-2 rounded-xl border border-border bg-surface-1 p-4 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
+        <span className="flex items-center gap-2">
+          <ShieldCheck className="size-4 text-jade" />
+          Have a real 0G root already?
+        </span>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/verify">
+            <FileText className="size-4" />
+            Verify by root
           </Link>
         </Button>
-      </motion.div>
-
-      {/* Search + filters */}
-      <div className="mb-4 flex flex-wrap items-center gap-2.5">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search consultations…"
-          className="h-[38px] min-w-[200px] flex-1 bg-surface-3"
-        />
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <span>
-              <FilterTrigger icon={Languages} label="Language" active={langActive} />
-            </span>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-52 p-1.5">
-            <p className="ds-eyebrow px-2.5 pb-1.5 pt-1 text-ink-dim">Language</p>
-            {LANG_OPTIONS.map((o) => (
-              <CheckItem
-                key={o.value}
-                label={o.label}
-                selected={langs.includes(o.value)}
-                onClick={() => toggleLang(o.value)}
-              />
-            ))}
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <span>
-              <FilterTrigger icon={CircleCheck} label="Status" active={statusActive} />
-            </span>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-44 p-1.5">
-            <p className="ds-eyebrow px-2.5 pb-1.5 pt-1 text-ink-dim">Status</p>
-            {STATUS_OPTIONS.map((o) => (
-              <CheckItem
-                key={o.value}
-                label={o.label}
-                selected={statuses.includes(o.value)}
-                onClick={() => toggleStatus(o.value)}
-              />
-            ))}
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <span>
-              <FilterTrigger icon={Calendar} label="Date range" active={dateActive} />
-            </span>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-44 p-1.5">
-            <p className="ds-eyebrow px-2.5 pb-1.5 pt-1 text-ink-dim">Date range</p>
-            {DATE_OPTIONS.map((o) => (
-              <CheckItem
-                key={o.value}
-                label={o.label}
-                selected={dateRange === o.value}
-                onClick={() => setDateRange(o.value)}
-              />
-            ))}
-          </PopoverContent>
-        </Popover>
       </div>
 
-      {/* Caption row */}
-      <div className="mb-2.5 flex items-center justify-between gap-3 px-0.5">
-        <span className="ds-eyebrow text-ink-dim">
-          {filtered.length} {filtered.length === 1 ? "record" : "records"} · all owned by you
-        </span>
-        <span className="ds-mono inline-flex items-center gap-1.5 text-[11px] text-ink-muted">
-          <ShieldCheck className="size-3.5 text-jade" />
-          Owned on 0G Storage
-        </span>
-      </div>
-
-      {/* Records library — grid table on desktop, stacked cards on phones */}
-      <RecordsList records={filtered} onReset={resetFilters} />
-
-      {/* Empty-state reference block */}
       <div className="mt-8 border-t border-border pt-6">
-        <p className="ds-eyebrow mb-3 text-ink-dim">
-          Empty state — shown for reference (first visit)
-        </p>
-        <div className="rounded-xl border border-dashed border-border-strong bg-surface-3 px-6 py-11 text-center">
-          <span className="mb-3.5 inline-flex size-[52px] items-center justify-center rounded-xl border border-border bg-surface-1">
-            <FileText className="size-6 text-ink-dim" />
-          </span>
-          <h2 className="ds-display text-[26px] text-ink">No consultations yet</h2>
-          <p className="mx-auto mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-ink-muted">
-            Your first note will live here — owned by you on 0G Storage, verifiable by anyone.
-          </p>
-          <Button asChild variant="outline" className="mt-4 border-jade-deep text-jade hover:bg-jade-soft hover:text-jade">
-            <Link href="/app">
-              <Mic className="size-4" />
-              Start a consultation
-            </Link>
-          </Button>
-        </div>
+        <Button asChild variant="live">
+          <Link href="/app">
+            <Mic className="size-4" />
+            Start a consultation
+          </Link>
+        </Button>
       </div>
     </AppShell>
   );

@@ -1,252 +1,158 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import {
-  AlertTriangle,
-  ArrowRightLeft,
-  CircleCheck,
-  Download,
-  ExternalLink,
-  FileDown,
-  Share2,
-  X,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { AlertTriangle, Database, Loader2, ShieldCheck } from "lucide-react";
+
 import { AppShell } from "@/components/shell/app-shell";
+import { RequireDoctor } from "@/components/shell/require-doctor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { OwnerAvatar } from "@/components/sz/owner-avatar";
-import { LiveDot } from "@/components/sz/live-dot";
 import { Copyable } from "@/components/sz/copyable";
-import { CheckRow } from "@/components/sz/check-row";
-import {
-  DEMO_NOTE,
-  DEMO_PROOF,
-  DEMO_RECORD,
-  DEMO_SEGMENTS,
-} from "@/lib/mock/data";
-import { NETWORK, COMPUTE } from "@/lib/constants";
-import { formatIST, truncAddress, truncHash, truncMid } from "@/lib/format";
-
-const SOAP = [
-  { k: "S · Subjective", v: DEMO_NOTE.subjective },
-  { k: "O · Objective", v: DEMO_NOTE.objective },
-  { k: "A · Assessment", v: DEMO_NOTE.assessment },
-  { k: "P · Plan", v: DEMO_NOTE.plan },
-] as const;
-
-const PROOF_ROWS = [
-  { label: "model", value: DEMO_PROOF.model, full: DEMO_PROOF.model },
-  { label: "request hash", value: truncHash(DEMO_PROOF.requestHash), full: DEMO_PROOF.requestHash },
-  { label: "response hash", value: truncHash(DEMO_PROOF.responseHash), full: DEMO_PROOF.responseHash },
-  { label: "provider TLS fingerprint", value: truncMid(DEMO_PROOF.providerTlsFingerprint, 8, 4), full: DEMO_PROOF.providerTlsFingerprint },
-  { label: "TEE measurement", value: DEMO_PROOF.teeMeasurement, full: DEMO_PROOF.teeMeasurement },
-  { label: "routing signature", value: truncHash(DEMO_PROOF.routingSignature), full: DEMO_PROOF.routingSignature },
-];
+import { RealDataEmptyState } from "@/components/sz/real-data-empty-state";
+import { useWallet } from "@/components/providers/wallet-provider";
+import { truncAddress, truncHash } from "@/lib/format";
+import type { RecordIndexEntry } from "@/lib/records/kv-index";
 
 export default function RecordDetailPage() {
-  const [transferOpen, setTransferOpen] = useState(false);
-  const [dest, setDest] = useState("");
-  const valid = /^0x[0-9a-fA-F]{40}$/.test(dest.trim());
-  const showError = dest.trim().length > 0 && !valid;
+  return (
+    <RequireDoctor>
+      <RecordDetail />
+    </RequireDoctor>
+  );
+}
+
+function RecordDetail() {
+  const params = useParams<{ id: string }>();
+  const noteId = params.id;
+  const { address } = useWallet();
+  const [records, setRecords] = useState<RecordIndexEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!address) return;
+    let active = true;
+    fetch(`/api/records/index?owner=${encodeURIComponent(address)}`)
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(body?.error || `0G KV index returned ${res.status}`);
+        return body as { records: RecordIndexEntry[] };
+      })
+      .then((body) => {
+        if (active) {
+          setRecords(body.records || []);
+          setError("");
+        }
+      })
+      .catch((err) => {
+        if (active) setError((err as Error).message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [address]);
+
+  const record = useMemo(
+    () => records.find((entry) => entry.noteId === noteId) || null,
+    [noteId, records],
+  );
 
   return (
     <AppShell>
       <div className="mx-auto max-w-3xl">
-        {/* header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <p className="ds-eyebrow">Consultation · {DEMO_NOTE.consultationCode}</p>
-            <h1 className="ds-display mt-1.5 text-[30px] text-ink">Fever, dry cough &amp; body ache</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="ds-mono text-ink-muted">ta-IN</Badge>
-              <Badge variant="outline" className="ds-mono text-ink-muted">en-IN</Badge>
-              <span className="ds-mono text-[11px] text-ink-dim">{formatIST(DEMO_NOTE.createdAt)}</span>
-            </div>
+            <p className="ds-eyebrow">Record lookup</p>
+            <h1 className="ds-display mt-1.5 text-[30px] text-ink">{noteId}</h1>
+            <p className="mt-2 text-sm text-ink-muted">
+              Record details come from the 0G KV proof index. Clinical plaintext stays encrypted in 0G Storage.
+            </p>
           </div>
           <Button asChild variant="ghost" size="sm">
-            <Link href="/records">
-              <X /> Close
-            </Link>
+            <Link href="/records">Close</Link>
           </Button>
         </div>
 
-        {/* owner + seal */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-jade/25 bg-[#10160f] px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <span className="flex size-7 items-center justify-center rounded-full border border-jade/40 bg-surface-2">
-              <CircleCheck className="size-4 text-jade" />
-            </span>
-            <div>
-              <div className="text-sm font-medium text-ink">Verified &amp; owned on 0G</div>
-              <div className="ds-mono text-[11px] text-ink-dim">
-                Generated in 0G Compute TeeTLS · persisted on 0G Storage
+        {loading ? (
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-surface-1 p-4 text-sm text-ink-muted">
+            <Loader2 className="size-4 animate-spin text-jade" />
+            Reading 0G KV record index
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-amber/30 bg-amber-soft p-4 text-sm text-amber">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <div>
+                <p className="font-medium">0G KV index unavailable</p>
+                <p className="mt-1">{error}</p>
               </div>
             </div>
           </div>
-          <span className="flex items-center gap-2 rounded-full border border-border bg-surface-1 px-2.5 py-1">
-            <OwnerAvatar address={DEMO_RECORD.ownerAddress} size={18} />
-            <Copyable value={DEMO_RECORD.ownerAddress} display={truncAddress(DEMO_RECORD.ownerAddress)} label="Owner copied" className="text-[11px]" />
-          </span>
-        </div>
-
-        {/* summary */}
-        <p className="mt-5 text-[15px] leading-relaxed text-ink-muted">{DEMO_NOTE.summary}</p>
-
-        {/* SOAP */}
-        <div className="mt-5 grid gap-x-8 gap-y-5 sm:grid-cols-2">
-          {SOAP.map((b) => (
-            <div key={b.k}>
-              <p className="ds-mono mb-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-dim">{b.k}</p>
-              <p className="text-[13px] leading-relaxed text-ink">{b.v}</p>
+        ) : record ? (
+          <section className="rounded-xl border border-border bg-surface-1">
+            <div className="border-b border-border px-4 py-3">
+              <p className="ds-eyebrow text-ink-dim">0G proof handles</p>
             </div>
-          ))}
-        </div>
-
-        {/* tabs */}
-        <Tabs defaultValue="proof" className="mt-7">
-          <TabsList>
-            <TabsTrigger value="proof">Proof</TabsTrigger>
-            <TabsTrigger value="verify">Verify</TabsTrigger>
-            <TabsTrigger value="transcript">Transcript</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="proof" className="mt-4">
-            <div className="rounded-xl border border-border bg-surface-1 p-4">
-              <p className="ds-eyebrow !text-ink-dim">TeeTLS routing proof · 0G Compute</p>
-              <div className="mt-3 divide-y divide-border">
-                {PROOF_ROWS.map((r) => (
-                  <div key={r.label} className="flex items-center justify-between gap-4 py-2.5">
-                    <span className="ds-mono text-[11px] text-ink-dim">{r.label}</span>
-                    <Copyable value={r.full} display={r.value} className="text-[11px]" label={`${r.label} copied`} />
-                  </div>
-                ))}
-              </div>
+            <div className="grid gap-4 p-4 sm:grid-cols-2">
+              <Info label="Owner" value={truncAddress(record.ownerAddress)} copy={record.ownerAddress} />
+              <Info label="Share code" value={record.shareCode} />
+              <Info label="Storage root" value={truncHash(record.storageRootHash)} copy={record.storageRootHash} />
+              <Info label="Storage tx" value={record.storageTxHash ? truncHash(record.storageTxHash) : "Not set"} copy={record.storageTxHash} />
+              <Info label="TEE proof" value={truncHash(record.teeTlsProof)} copy={record.teeTlsProof} />
+              <Info label="Note hash" value={truncHash(record.noteHash)} copy={record.noteHash} />
+              <Info label="Created" value={new Date(record.createdAt).toLocaleString()} />
+              <Info label="Indexed" value={new Date(record.indexedAt).toLocaleString()} />
             </div>
-            <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-border bg-surface-1 p-4">
-              <div className="flex items-center gap-3">
-                <span className="ds-eyebrow !text-ink-dim">0G Storage · Merkle root (withProof)</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Copyable value={DEMO_RECORD.zgStorageRootHash} display={truncHash(DEMO_RECORD.zgStorageRootHash)} label="Storage root copied" className="text-[12px]" />
-                <a href={NETWORK.explorer} target="_blank" rel="noreferrer" className="text-ink-dim hover:text-jade">
-                  <ExternalLink className="size-3.5" />
-                </a>
-              </div>
+            <div className="flex flex-wrap gap-2 border-t border-border px-4 py-3">
+              <Badge variant="outline" className="border-jade/30 text-jade">
+                Compute {record.proof.computeMode}
+              </Badge>
+              <Badge variant="outline" className="border-jade/30 text-jade">
+                Storage {record.proof.storageMode}
+              </Badge>
+              <Badge variant="outline" className="border-border text-ink-muted">
+                Chain {record.chainId || 16602}
+              </Badge>
             </div>
-          </TabsContent>
-
-          <TabsContent value="verify" className="mt-4">
-            <div className="rounded-xl border border-border bg-surface-1 px-4 py-1">
-              <div className="divide-y divide-border">
-                <CheckRow
-                  title="Note hash matches"
-                  detail="Re-computed keccak256 equals the value stored on 0G."
-                  value={truncHash(DEMO_NOTE.noteHash)}
-                />
-                <CheckRow
-                  title="TeeTLS routing proof valid"
-                  detail="Signed inside the TEE — binds request, response and provider."
-                  subFacts={[
-                    { label: "Generated inside a TEE — attestation present", value: `${COMPUTE.attestation} · 0G Compute` },
-                    { label: "Provider TLS fingerprint matched", value: truncMid(DEMO_PROOF.providerTlsFingerprint, 8, 4) },
-                  ]}
-                />
-                <CheckRow
-                  title="0G Storage reachable"
-                  detail="Merkle root resolves on the testnet turbo indexer."
-                  value="3 nodes"
-                />
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="transcript" className="mt-4">
-            <div className="overflow-hidden rounded-xl border border-border bg-surface-3">
-              <div className="grid grid-cols-2">
-                <div className="space-y-3 border-r border-border px-4 py-3">
-                  <p className="ds-mono text-[9px] uppercase tracking-[0.1em] text-ink-dim">தமிழ் · ta-IN</p>
-                  {DEMO_SEGMENTS.map((s) => (
-                    <p key={s.id} className="text-[13px] leading-relaxed text-ink">
-                      <span className="ds-mono mb-0.5 block text-[9px] text-ink-dim">{s.speaker.toUpperCase()}</span>
-                      {s.native}
-                    </p>
-                  ))}
-                </div>
-                <div className="space-y-3 px-4 py-3">
-                  <p className="ds-mono text-[9px] uppercase tracking-[0.1em] text-ink-dim">English · en-IN</p>
-                  {DEMO_SEGMENTS.map((s) => (
-                    <p key={s.id} className="text-[13px] leading-relaxed text-ink-muted">
-                      <span className="ds-mono mb-0.5 block text-[9px] text-ink-dim">{s.speaker.toUpperCase()}</span>
-                      {s.english}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-
-        {/* actions */}
-        <div className="mt-6 flex flex-wrap gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/r/HX7K2M"><Share2 /> Share record</Link>
-          </Button>
-          <Button variant="outline" size="sm"><FileDown /> Export PDF · JSON</Button>
-          <Button variant="outline" size="sm"><Download /> Download from 0G</Button>
-          <Button variant="outline" size="sm" className="text-amber" onClick={() => setTransferOpen(true)}>
-            <ArrowRightLeft /> Transfer ownership
-          </Button>
-        </div>
+          </section>
+        ) : (
+          <RealDataEmptyState
+            icon={Database}
+            title="Record not indexed"
+            body="No 0G KV entry exists for this note id under the connected wallet."
+            detail="Use the verifier if you have a raw 0G Storage root, or create a new consultation to generate a wallet-owned KV index entry."
+            primaryHref="/verify"
+            primaryLabel="Verify by root"
+          />
+        )}
 
         <p className="mt-4 flex items-center gap-1.5 text-[11px] text-ink-dim">
-          <LiveDot size={5} /> Record live on {NETWORK.name}
+          <ShieldCheck className="size-3.5 text-jade" /> This route displays proof handles only, not decrypted clinical note text.
         </p>
       </div>
-
-      {/* transfer dialog */}
-      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <p className="ds-eyebrow !text-ink-dim">Transfer ownership · 0G record</p>
-            <DialogTitle className="ds-display text-2xl text-ink">Re-bind this record</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-ink-muted">
-            The destination address becomes the owner bound to Merkle root{" "}
-            <span className="ds-mono text-ink">{truncHash(DEMO_RECORD.zgStorageRootHash)}</span>. This record will leave your library.
-          </p>
-          <div className="space-y-1.5">
-            <label className="ds-mono text-[11px] text-ink-dim">Destination address</label>
-            <Input
-              value={dest}
-              onChange={(e) => setDest(e.target.value)}
-              placeholder="0x…"
-              className="ds-mono"
-              aria-invalid={showError}
-            />
-            {showError && (
-              <p className="flex items-center gap-1.5 text-[11px] text-vermillion">
-                <AlertTriangle className="size-3" /> Not a valid 0G address — expecting 42 hex characters.
-              </p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setTransferOpen(false)}>Cancel</Button>
-            <Button variant="live" size="sm" disabled={!valid}>
-              <ArrowRightLeft /> Transfer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </AppShell>
+  );
+}
+
+function Info({ label, value, copy }: { label: string; value: string; copy?: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border bg-surface-3 p-3">
+      <p className="ds-eyebrow text-ink-dim">{label}</p>
+      {copy ? (
+        <Copyable
+          value={copy}
+          display={value}
+          label={`${label} copied`}
+          className="mt-1 max-w-full truncate text-[12px]"
+        />
+      ) : (
+        <p className="ds-mono mt-1 truncate text-[12px] text-ink">{value}</p>
+      )}
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
-import { DEMO_CONSULT } from "@/lib/mock/data";
-import { truncHash } from "@/lib/format";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export const runtime = "nodejs";
 export const alt = "ScribeZero — a medical record verified on 0G";
@@ -15,9 +15,11 @@ function Dot() {
   return <div style={{ display: "flex", width: 14, height: 14, borderRadius: 7, background: jade }} />;
 }
 
-// Branded "verified on 0G" share card — what voters see when a record is shared.
+// Branded share-card placeholder. Real share records require a 0G KV index entry.
 export default async function Image() {
-  const root = truncHash(DEMO_CONSULT.record.zgStorageRootHash);
+  const logo = await readFile(join(process.cwd(), "public/brand/scribe-zero-icon-192.png"));
+  const logoSrc = `data:image/png;base64,${logo.toString("base64")}`;
+
   return new ImageResponse(
     (
       <div
@@ -33,7 +35,16 @@ export default async function Image() {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", fontSize: 42, fontStyle: "italic", color: cream }}>ScribeZero</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+            <img
+              src={logoSrc}
+              alt=""
+              width={58}
+              height={58}
+              style={{ borderRadius: 12, display: "flex" }}
+            />
+            <div style={{ display: "flex", fontSize: 42, color: cream }}>ScribeZero</div>
+          </div>
           <div
             style={{
               display: "flex",
@@ -48,16 +59,14 @@ export default async function Image() {
             }}
           >
             <Dot />
-            <div style={{ display: "flex" }}>0G testnet — verified</div>
+            <div style={{ display: "flex" }}>0G root required</div>
           </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div style={{ display: "flex", fontSize: 28, color: dim, letterSpacing: 2 }}>
-            Tamil to English — reviewed by {DEMO_CONSULT.reviewer}
-          </div>
+          <div style={{ display: "flex", fontSize: 28, color: dim, letterSpacing: 2 }}>Encrypted medical records on 0G</div>
           <div style={{ display: "flex", fontSize: 68, fontStyle: "italic", color: cream, lineHeight: 1.05 }}>
-            Acute viral upper-respiratory infection
+            Verify the Storage root.
           </div>
           <div style={{ display: "flex", fontSize: 30, color: "#a9a89e", maxWidth: 920 }}>
             A medical record generated in 0G Compute and owned by you on 0G Storage. Verifiable by
@@ -80,7 +89,7 @@ export default async function Image() {
               <div style={{ display: "flex" }}>hash unchanged</div>
             </div>
           </div>
-          <div style={{ display: "flex", fontSize: 24, color: dim }}>root {root}</div>
+          <div style={{ display: "flex", fontSize: 24, color: dim }}>root required</div>
         </div>
       </div>
     ),

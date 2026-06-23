@@ -2,7 +2,8 @@ import { getWallet } from "./server";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const ROUTER_URL = process.env.ZEROG_COMPUTE_ROUTER || "https://router-api.0g.ai/v1";
+const ROUTER_URL =
+  process.env.ZEROG_COMPUTE_ROUTER || "https://router-api-testnet.integratenetwork.work/v1";
 const STT_MODEL = process.env.ZEROG_STT_MODEL || "whisper-large-v3";
 
 export interface SttResult {

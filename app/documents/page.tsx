@@ -1,12 +1,12 @@
-import Link from "next/link";
-import { Download, FileText, ShieldCheck } from "lucide-react";
+import { FileText } from "lucide-react";
 
 import { AppShell } from "@/components/shell/app-shell";
-import { Button } from "@/components/ui/button";
-import { DOCUMENTS, patientName } from "@/lib/mock/product";
+import { RequireDoctor } from "@/components/shell/require-doctor";
+import { RealDataEmptyState } from "@/components/sz/real-data-empty-state";
 
 export default function DocumentsPage() {
   return (
+    <RequireDoctor>
     <AppShell className="max-w-[960px]">
       <header className="mb-6">
         <p className="ds-eyebrow text-jade">Documents</p>
@@ -18,35 +18,13 @@ export default function DocumentsPage() {
         </p>
       </header>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-surface-1">
-        <div className="divide-y divide-border">
-          {DOCUMENTS.map((doc) => (
-            <div key={doc.id} className="grid gap-4 px-4 py-4 sm:grid-cols-[1fr_140px_120px] sm:items-center">
-              <div className="flex gap-3">
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface-3 text-jade">
-                  <FileText className="size-5" />
-                </span>
-                <div>
-                  <p className="text-sm font-medium text-ink">{doc.title}</p>
-                  <p className="mt-1 text-xs text-ink-muted">
-                    {patientName(doc.patientId)} · {doc.type}
-                  </p>
-                </div>
-              </div>
-              <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-jade-deep px-2 py-1 text-xs text-jade">
-                <ShieldCheck className="size-3" />
-                {doc.status}
-              </span>
-              <Button asChild variant="outline" size="sm">
-                <Link href={`/patients/${doc.patientId}`}>
-                  <Download className="size-3.5" />
-                  Open
-                </Link>
-              </Button>
-            </div>
-          ))}
-        </div>
-      </div>
+      <RealDataEmptyState
+        icon={FileText}
+        title="No generated documents yet"
+        body="Medical certificates, referral letters, summaries, and patient instructions will appear here after real 0G Compute generation and encrypted 0G Storage."
+        primaryLabel="Create consult first"
+      />
     </AppShell>
+    </RequireDoctor>
   );
 }

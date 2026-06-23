@@ -1,5 +1,6 @@
 import { Indexer, MemData } from "@0gfoundation/0g-storage-ts-sdk";
 import { getWallet, ZEROG_RPC, ZEROG_INDEXER } from "./server";
+import { isStorageReachableStatus } from "./reachability";
 
 /**
  * Upload an arbitrary JSON object to 0G Storage.
@@ -29,10 +30,11 @@ export async function uploadJson(
 /** True if the root resolves on the 0G Storage indexer (used by verify). */
 export async function storageReachable(rootHash: string): Promise<boolean> {
   try {
-    const res = await fetch(`${ZEROG_INDEXER}/file?root=${rootHash}`, {
-      method: "HEAD",
-    });
-    return res.ok || res.status === 200;
+    const url = `${ZEROG_INDEXER}/file?root=${rootHash}`;
+    const head = await fetch(url, { method: "HEAD" });
+    if (isStorageReachableStatus(head.status)) return true;
+    const get = await fetch(url, { method: "GET" });
+    return isStorageReachableStatus(get.status);
   } catch {
     return false;
   }

@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { Mic, ShieldCheck } from "lucide-react";
+import { Mic } from "lucide-react";
 
 import { AppShell } from "@/components/shell/app-shell";
+import { RequireDoctor } from "@/components/shell/require-doctor";
 import { Button } from "@/components/ui/button";
-import { DEMO_RECORDS } from "@/lib/mock/data";
+import { RealDataEmptyState } from "@/components/sz/real-data-empty-state";
 
 export default function ConsultationsPage() {
   return (
+    <RequireDoctor>
     <AppShell className="max-w-[900px]">
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -26,26 +28,13 @@ export default function ConsultationsPage() {
         </Button>
       </header>
 
-      <div className="space-y-3">
-        {DEMO_RECORDS.map((record) => (
-          <Link
-            key={record.id}
-            href={`/records/${record.id}`}
-            className="flex items-center gap-4 rounded-xl border border-border bg-surface-1 p-4 transition-colors hover:border-border-strong"
-          >
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-jade-deep bg-jade-soft text-jade">
-              <ShieldCheck className="size-5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-ink">{record.complaint}</span>
-              <span className="mt-1 block ds-mono text-[11px] text-ink-dim">
-                {record.code} · {record.status}
-              </span>
-            </span>
-            <span className="text-xs text-ink-muted">{record.language.toUpperCase()}</span>
-          </Link>
-        ))}
-      </div>
+      <RealDataEmptyState
+        icon={Mic}
+        title="No 0G-indexed consultations yet"
+        body="Consultations will show here only after real microphone capture, 0G Router STT, verified 0G Compute, encrypted 0G Storage, and 0G KV indexing."
+        primaryLabel="New consult"
+      />
     </AppShell>
+    </RequireDoctor>
   );
 }

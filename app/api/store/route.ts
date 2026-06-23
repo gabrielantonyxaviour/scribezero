@@ -6,17 +6,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  let note: unknown;
+  let artifact: unknown;
   try {
-    note = (await req.json())?.note;
+    const body = await req.json();
+    artifact = body?.artifact ?? body?.note;
   } catch {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
-  if (!note) {
-    return NextResponse.json({ error: "note required" }, { status: 400 });
+  if (!artifact) {
+    return NextResponse.json({ error: "encrypted artifact required" }, { status: 400 });
   }
   try {
-    const { rootHash, txHash } = await uploadJson(note);
+    const { rootHash, txHash } = await uploadJson(artifact);
     return NextResponse.json({ rootHash, txHash });
   } catch (e) {
     return NextResponse.json(
