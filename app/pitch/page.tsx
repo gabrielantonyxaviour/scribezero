@@ -28,7 +28,7 @@ function Slide({
 }) {
   return (
     <section className={`grid min-h-screen place-items-center px-4 py-10 ${className}`}>
-      <div className="relative aspect-video w-full max-w-7xl overflow-hidden rounded-[10px] border border-line bg-[#f6fbf7] shadow-2xl shadow-emerald-950/15">
+      <div className="relative min-h-[720px] w-full max-w-7xl overflow-hidden rounded-[10px] border border-line bg-[#f6fbf7] shadow-2xl shadow-emerald-950/15 md:aspect-video md:min-h-0">
         <div className="absolute left-8 top-7 z-10 flex items-center gap-4 font-mono text-xs uppercase tracking-[0.24em] text-emerald-900/55">
           <span>{number}</span>
           <span className="h-px w-14 bg-emerald-900/25" />
@@ -49,11 +49,11 @@ export default function PitchPage() {
           <Image src="/scribe-zero/onboarding-1.jpg" alt="ScribeZero clinical consult" fill priority className="object-cover" />
           <div className="absolute inset-0 bg-gradient-to-l from-transparent to-[#f8fff9]/20" />
         </div>
-        <div className="absolute left-16 top-28 max-w-3xl">
+        <div className="absolute left-6 right-6 top-24 max-w-3xl md:left-16 md:right-auto md:top-28">
           <Link href="/" className="font-mono text-xs uppercase tracking-[0.28em] text-emerald-800">
             ScribeZero
           </Link>
-          <h1 className="mt-8 text-[86px] font-black leading-[0.88] tracking-tight">
+          <h1 className="mt-8 text-[44px] font-black leading-[0.92] tracking-tight md:text-[86px] md:leading-[0.88]">
             Spoken care becomes patient-owned proof.
           </h1>
           <p className="mt-8 max-w-2xl text-[26px] leading-[1.35] text-emerald-950/70">
