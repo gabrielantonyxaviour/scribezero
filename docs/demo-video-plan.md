@@ -1,6 +1,7 @@
 # ScribeZero Demo Video Plan
 
-Target runtime: 88-95 seconds.
+Current rendered scaffold: 66.048 seconds at `public/demo.mp4`.
+Final footage cut target: 88-95 seconds after replacing the placeholder segment with real app recordings.
 Audience: first-round judges.
 Video style: speaker-led pitch with short app recordings inserted. Do not use one continuous screen recording.
 Final public URL: `https://scribezero.pages.dev/demo.mp4`.
@@ -58,7 +59,9 @@ ScribeZero turns spoken care into private, verifiable records patients can carry
 
 ## Remotion Assembly Notes
 
-Composition: `ScribeZeroDemo`, 1920x1080, 30 fps, 92 seconds.
+Composition: `ScribeZeroDemo`, 1280x720, 30 fps, 66.048 seconds.
+Source file: `video/remotion-demo.tsx`.
+Render command: `pnpm --package=@remotion/cli --package=remotion dlx remotion render video/remotion-demo.tsx ScribeZeroDemo public/demo.mp4 --overwrite --codec=h264 --crf=26`.
 
 Assets:
 - `public/video/raw/scribezero-clip-01-consult-to-note.mp4`
