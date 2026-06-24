@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@/components/providers/wallet-provider";
+import { hasCompleteDoctorProfileReceipt } from "./profile-status";
 
 /**
  * Doctor profile, owned by the connected wallet. The browser copy is a local
@@ -72,7 +73,11 @@ export function writeProfile(address: string, profile: DoctorProfile) {
 
 export function isOnboarded(address: string): boolean {
   const p = readProfile(address);
-  return Boolean(p && p.name.trim());
+  return isCompleteDoctorProfile(p);
+}
+
+export function isCompleteDoctorProfile(profile: DoctorProfile | null | undefined): profile is DoctorProfile {
+  return hasCompleteDoctorProfileReceipt(profile);
 }
 
 export function clearProfile(address: string) {
@@ -152,9 +157,7 @@ export function useOnboarding() {
   }, [address]);
 
   let status: OnboardingStatus = "loading";
-  if (hydratedAddress === (address || "")) {
-    status = profile && profile.name.trim() ? "done" : "needed";
-  }
+  if (hydratedAddress === (address || "")) status = isCompleteDoctorProfile(profile) ? "done" : "needed";
 
   return { status, profile, save, reset, address };
 }

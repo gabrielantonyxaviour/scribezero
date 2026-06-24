@@ -26,7 +26,7 @@ export type EncryptedDocumentArtifact = {
       provider: string;
       model?: string;
       chatID: string;
-      verified: true;
+      verified: boolean | null;
     };
   };
   encryption: {
@@ -71,7 +71,7 @@ function bytesToHex(bytes: Uint8Array): `0x${string}` {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function ciphertextHash(ciphertext: string): `0x${string}` {
+export function ciphertextHash(ciphertext: string): `0x${string}` {
   return keccak256(bytesToHex(base64ToBytes(ciphertext)));
 }
 
@@ -111,12 +111,14 @@ async function keyFromSignature(signature: string) {
 export async function buildEncryptedDocumentArtifact(input: {
   ownerAddress: string;
   document: GeneratedClinicalDocument;
-  computeProof: ComputeProof & { verified: true };
+  computeProof: ComputeProof;
   signMessage: SignMessage;
   now?: string;
 }): Promise<EncryptedDocumentArtifact> {
   if (!/^0x[0-9a-fA-F]{40}$/.test(input.ownerAddress)) throw new Error("Owner wallet is required");
-  if (input.computeProof.verified !== true) throw new Error("0G Compute proof is required");
+  if (input.computeProof.verified !== true && input.computeProof.provider !== "sarvam") {
+    throw new Error("0G Compute proof is required unless Sarvam fallback is disclosed");
+  }
   const createdAt = input.now ?? new Date().toISOString();
   const id = documentId();
   const docHash = computeDocumentHash(input.document);
@@ -154,7 +156,7 @@ export async function buildEncryptedDocumentArtifact(input: {
         provider: input.computeProof.provider,
         model: input.computeProof.model,
         chatID: input.computeProof.chatID,
-        verified: true,
+        verified: input.computeProof.verified,
       },
     },
     encryption: {
@@ -178,7 +180,8 @@ export function isEncryptedDocumentArtifact(value: unknown): value is EncryptedD
       /^doc_[a-z0-9]{12}$/i.test(artifact.public?.documentId || "") &&
       /^pat_[a-z0-9]{12}$/i.test(artifact.public?.patientId || "") &&
       /^0x[0-9a-fA-F]{64}$/.test(artifact.public?.documentHash || "") &&
-      artifact.public?.computeProof?.verified === true &&
+      typeof artifact.public?.computeProof?.provider === "string" &&
+      typeof artifact.public?.computeProof?.chatID === "string" &&
       artifact.encryption?.algorithm === "AES-GCM" &&
       /^0x[0-9a-fA-F]{64}$/.test(artifact.encryption?.ciphertextHash || "") &&
       typeof artifact.ciphertext === "string",

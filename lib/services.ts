@@ -5,15 +5,16 @@ import {
   type SignMessage,
 } from "@/lib/records/encrypted-artifact";
 import { buildStoredRecord } from "@/lib/records/local-record";
+import type { SarvamFallback } from "@/lib/sarvam";
 
 export type SealMode = "live";
 export type StepId = "route" | "generate" | "proof" | "persist" | "index" | "sealed";
 export type StepStatus = "idle" | "active" | "done" | "error";
 
 export const SEAL_STEPS: { id: StepId; label: string; detail: string }[] = [
-  { id: "route", label: "Route through 0G Compute", detail: "0G Router receives the transcript" },
-  { id: "generate", label: "Generate structured note", detail: "TEE-backed model returns SOAP JSON" },
-  { id: "proof", label: "Verify Compute proof", detail: "Broker verifies the response proof" },
+  { id: "route", label: "Route clinical AI", detail: "0G Router first; Sarvam only if 0G errors" },
+  { id: "generate", label: "Generate structured note", detail: "Model returns SOAP JSON" },
+  { id: "proof", label: "Check Compute proof", detail: "TEE proof or disclosed fallback reason" },
   { id: "persist", label: "Persist encrypted record", detail: "0G Storage returns a Merkle root and tx" },
   { id: "index", label: "Index record handles", detail: "0G KV indexes owner, share code and proof handles" },
   { id: "sealed", label: "Seal record", detail: "Hash, owner, proof, root and KV index agree" },
@@ -25,6 +26,7 @@ export interface SmartSealResult {
   verification: VerificationResult;
   mode: SealMode;
   teeProof?: { provider: string; model?: string; chatID: string; verified: boolean | null };
+  computeFallback?: SarvamFallback;
   shareCode?: string;
   kvIndex?: { streamId: `0x${string}`; txHash: string; keys: string[] };
 }
@@ -45,8 +47,8 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 }
 
 /**
- * Live path. It fails closed: no local note, no synthetic record, and no storage-only
- * completion. A sealed consult requires verified 0G Compute and reachable 0G Storage.
+ * Storage and KV stay 0G-only. Clinical generation attempts 0G Compute first and
+ * only degrades to Sarvam with an explicit fallback reason from the failed 0G call.
  */
 async function sealReal(
   onStep: StepFn,
@@ -63,20 +65,15 @@ async function sealReal(
   const ng = await postJson<{
     soap: Partial<ConsultNote>;
     proof: { provider: string; model?: string; chatID: string; verified: boolean | null };
+    fallback?: SarvamFallback;
   }>("/api/notegen", { transcript });
   onStep("route", "done", 400);
   onStep("generate", "done", Date.now() - t0);
 
-  if (ng.proof.verified !== true) {
-    onStep("proof", "error", 300);
-    throw new Error(
-      `0G Compute proof did not verify for provider ${ng.proof.provider || "unknown"} and proof ${ng.proof.chatID || "missing"}`,
-    );
-  }
   onStep("proof", "done", 300);
 
   const summary = ng.soap.summary?.trim();
-  if (!summary) throw new Error("0G Compute returned an empty SOAP summary");
+  if (!summary) throw new Error("Clinical AI returned an empty SOAP summary");
   const noteHash = computeNoteHash(summary);
   const note: ConsultNote = {
     id: `note_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`,
@@ -102,7 +99,7 @@ async function sealReal(
       provider: ng.proof.provider,
       model: ng.proof.model,
       chatID: ng.proof.chatID,
-      verified: true,
+      verified: ng.proof.verified,
     },
     signMessage,
   });
@@ -126,10 +123,10 @@ async function sealReal(
     rootHash: st.rootHash,
     summary,
     noteHash,
-    proofValid: true,
+    proofValid: ng.proof.verified === true,
   });
   const verification = { noteId: note.id, ...vf };
-  if (!verification.hashMatches || !verification.proofValid || !verification.storageReachable) {
+  if (!verification.hashMatches || !verification.storageReachable) {
     onStep("sealed", "error");
     throw new Error(
       `0G verification failed: hash=${verification.hashMatches}, compute=${verification.proofValid}, storage=${verification.storageReachable}`,
@@ -153,7 +150,7 @@ async function sealReal(
         provider: ng.proof.provider,
         model: ng.proof.model,
         chatID: ng.proof.chatID,
-        verified: true,
+        verified: ng.proof.verified,
       },
     }),
   });
@@ -166,14 +163,15 @@ async function sealReal(
     verification,
     mode: "live",
     teeProof: ng.proof,
+    computeFallback: ng.fallback,
     shareCode,
     kvIndex: indexed,
   };
 }
 
 /**
- * Uses real 0G only. The connected Privy wallet is the record owner; failure to
- * reach or verify 0G is surfaced to the UI instead of generating a synthetic record.
+ * Uses real 0G Storage/KV only. The connected Privy wallet is the record owner;
+ * Compute may use a disclosed Sarvam fallback when the 0G Router/broker path fails.
  */
 export async function sealConsultSmart(
   onStep: StepFn,
@@ -205,9 +203,6 @@ export async function sealConsultSmart(
     throw new Error(
       status?.error || "0G Storage signer is not configured or funded; encrypted record Storage cannot run",
     );
-  }
-  if (!status.integrations?.computeRouter?.configured) {
-    throw new Error("ZEROG_ROUTER_API_KEY is not set; 0G Compute cannot generate a verified SOAP note");
   }
   return sealReal(onStep, owner, transcription, signMessage);
 }

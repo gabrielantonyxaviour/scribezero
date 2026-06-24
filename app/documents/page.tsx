@@ -22,11 +22,13 @@ import {
 import { documentTypeLabel, type DocumentType } from "@/lib/documents/generation";
 import type { DocumentIndexEntry } from "@/lib/documents/kv-index";
 import type { PatientIndexEntry } from "@/lib/patients/kv-index";
+import type { SarvamFallback } from "@/lib/sarvam";
 
 type LoadState = "loading" | "ready" | "error";
 type ZeroGStatus = {
   computeBroker?: { minimumLedgerFunding: string; funded: boolean };
   computeFundingFailure?: { message: string; at: string } | null;
+  computeFallback?: SarvamFallback | null;
   warnings?: string[];
 };
 
@@ -115,8 +117,10 @@ function DocumentsWorkspace() {
     [documents],
   );
   const computeFundingIssue = zeroGStatus?.computeFundingFailure?.message ?? "";
+  const computeFallbackIssue = zeroGStatus?.computeFallback?.zerogError ?? "";
   const brokerWarning =
     zeroGStatus?.warnings?.find((warning) => warning.includes("Compute broker fallback")) ?? "";
+  const computeNotice = computeFallbackIssue || computeFundingIssue || brokerWarning;
 
   return (
     <AppShell className="max-w-[1080px]">
@@ -134,7 +138,7 @@ function DocumentsWorkspace() {
         <DocumentCreateDialog
           patients={patients}
           onCreated={loadWorkspace}
-          computeBlockedReason={computeFundingIssue}
+          computeNotice={computeNotice}
         />
       </header>
 
@@ -151,15 +155,15 @@ function DocumentsWorkspace() {
         <span className="ds-mono">owner {short(wallet.address)}</span>
       </div>
 
-      {computeFundingIssue || brokerWarning ? (
+      {computeNotice ? (
         <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-ink">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-300" />
           <div>
             <p className="font-medium text-amber-100">
-              {computeFundingIssue ? "0G Compute funding is blocking document generation" : "0G broker fallback is not funded"}
+              {computeFallbackIssue ? "0G Compute fallback active" : "0G Compute fallback is available"}
             </p>
             <p className="mt-1 text-ink-muted">
-              {computeFundingIssue || brokerWarning}
+              {computeNotice}
             </p>
           </div>
         </div>
@@ -194,7 +198,7 @@ function DocumentsWorkspace() {
                 <TableHead>Document</TableHead>
                 <TableHead>Patient</TableHead>
                 <TableHead>0G Storage root</TableHead>
-                <TableHead>TEE proof</TableHead>
+                <TableHead>Compute proof</TableHead>
                 <TableHead>Created</TableHead>
               </TableRow>
             </TableHeader>
@@ -216,7 +220,12 @@ function DocumentsWorkspace() {
                     <Copyable value={document.storageRootHash} display={short(document.storageRootHash)} />
                   </TableCell>
                   <TableCell>
-                    <Copyable value={document.computeProof} display={short(document.computeProof)} />
+                    <div className="flex flex-col gap-1">
+                      <Copyable value={document.computeProof} display={short(document.computeProof)} />
+                      <span className="ds-mono text-[10px] text-ink-dim">
+                        {document.computeProofValid ? "0G TEE verified" : "fallback · not TEE verified"}
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>{new Date(document.createdAt).toLocaleString()}</TableCell>
                 </TableRow>

@@ -72,7 +72,21 @@ export async function readPatientIndex(ownerAddress: string, patientId: string) 
 export async function listPatientIndex(ownerAddress: string) {
   if (!ownerAddress) return [];
   const rows = await listKvJson<PatientIndexEntry>(ownerPatientPrefix(ownerAddress), 100);
-  return rows.map((row) => row.value);
+  return rows.map((row) => row.value).filter(isPatientIndexEntry);
+}
+
+export function isPatientIndexEntry(value: unknown): value is PatientIndexEntry {
+  const entry = value as Partial<PatientIndexEntry> | null;
+  return Boolean(
+    entry &&
+      entry.kind === "scribezero.patient-index" &&
+      entry.version === 1 &&
+      typeof entry.ownerAddress === "string" &&
+      typeof entry.patientId === "string" &&
+      typeof entry.preferredLanguage === "string" &&
+      typeof entry.storageRootHash === "string" &&
+      typeof entry.patientCommitment === "string",
+  );
 }
 
 function mergeReceipts(receipts: KvWriteReceipt[]): PatientIndexReceipt {

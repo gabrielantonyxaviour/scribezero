@@ -21,8 +21,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { content, proof } = await generateVerifiable(buildDocumentMessages(input));
-    if (proof.verified !== true) {
+    const { content, proof, fallback } = await generateVerifiable(buildDocumentMessages(input));
+    if (proof.verified !== true && !fallback) {
       return NextResponse.json(
         {
           error: `0G Compute proof did not verify for provider ${proof.provider || "unknown"} and proof ${proof.chatID || "missing"}`,
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       );
     }
     const document = parseGeneratedDocument(content, input);
-    return NextResponse.json({ document, proof });
+    return NextResponse.json({ document, proof, fallback });
   } catch (error) {
     return NextResponse.json(
       { error: `0G Compute document generation failed: ${(error as Error).message}` },

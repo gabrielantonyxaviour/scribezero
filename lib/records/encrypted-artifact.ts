@@ -23,7 +23,7 @@ export type EncryptedRecordArtifact = {
       provider: string;
       model?: string;
       chatID: string;
-      verified: true;
+      verified: boolean | null;
     };
     sttProof?: {
       provider: string;
@@ -94,7 +94,7 @@ export async function buildEncryptedRecordArtifact(input: {
     provider: string;
     model?: string;
     chatID: string;
-    verified: true;
+    verified: boolean | null;
   };
   signMessage: SignMessage;
 }): Promise<EncryptedRecordArtifact> {

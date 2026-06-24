@@ -59,7 +59,7 @@ function bytesToHex(bytes: Uint8Array): `0x${string}` {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function ciphertextHash(ciphertext: string): `0x${string}` {
+export function ciphertextHash(ciphertext: string): `0x${string}` {
   return keccak256(bytesToHex(base64ToBytes(ciphertext)));
 }
 

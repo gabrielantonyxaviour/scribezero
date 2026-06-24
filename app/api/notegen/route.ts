@@ -19,9 +19,9 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { content, proof } = await generateVerifiable(buildMessages(transcript));
+    const { content, proof, fallback } = await generateVerifiable(buildMessages(transcript));
     const soap = parseSoap(content);
-    return NextResponse.json({ soap, proof });
+    return NextResponse.json({ soap, proof, fallback });
   } catch (e) {
     return NextResponse.json(
       { error: `0G Compute failed: ${(e as Error).message}` },

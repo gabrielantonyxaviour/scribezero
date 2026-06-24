@@ -18,7 +18,7 @@ export type DocumentIndexEntry = {
   computeProvider: string;
   computeModel?: string;
   computeProof: string;
-  computeProofValid: true;
+  computeProofValid: boolean;
   chainId: 16602;
   indexedAt: string;
 };
@@ -68,7 +68,7 @@ export function buildDocumentIndexEntry(input: {
     computeProvider: input.artifact.public.computeProof.provider,
     computeModel: input.artifact.public.computeProof.model,
     computeProof: input.artifact.public.computeProof.chatID,
-    computeProofValid: true,
+    computeProofValid: input.artifact.public.computeProof.verified === true,
     chainId: 16602,
     indexedAt: input.indexedAt ?? new Date().toISOString(),
   };

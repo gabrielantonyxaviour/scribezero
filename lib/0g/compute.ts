@@ -1,4 +1,5 @@
 import { getBalance, getWallet } from "./server";
+import { generateViaSarvam, type SarvamFallback } from "../sarvam";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -11,6 +12,12 @@ export interface ComputeProof {
   responseHash?: string;
   signature?: string;
 }
+
+export type ComputeGenerationResult = {
+  content: string;
+  proof: ComputeProof;
+  fallback?: SarvamFallback;
+};
 
 let brokerPromise: Promise<any> | null = null;
 function broker() {
@@ -71,14 +78,26 @@ type ComputeFundingFailure = {
 };
 
 let lastFundingFailure: ComputeFundingFailure | null = null;
+let lastComputeFallback: SarvamFallback | null = null;
 
 export function getLastComputeFundingFailure() {
   return lastFundingFailure;
 }
 
+export function getLastComputeFallback() {
+  return lastComputeFallback;
+}
+
 export function isRouterInsufficientBalanceError(error: unknown) {
   const message = String((error as Error)?.message ?? error);
   return /router 402|insufficient_balance|Insufficient balance|payment_error/i.test(message);
+}
+
+export function isRecoverableComputeError(error: unknown) {
+  const message = String((error as Error)?.message ?? error);
+  return /router (402|408|409|425|429|500|502|503|504)|compute (408|409|425|429|500|502|503|504)|insufficient_balance|Insufficient balance|payment_error|rate.?limit|provider unavailable|no 0G compute providers|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND/i.test(
+    message,
+  );
 }
 
 export function computeFundingError(input: {
@@ -131,7 +150,7 @@ function messageText(data: any): string {
 async function generateViaRouter(
   messages: { role: string; content: string }[],
   apiKey: string,
-): Promise<{ content: string; proof: ComputeProof }> {
+): Promise<ComputeGenerationResult> {
   const res = await fetch(`${ROUTER_URL}/chat/completions`, {
     method: "POST",
     headers: {
@@ -177,7 +196,7 @@ async function generateViaRouter(
 
 async function generateViaBroker(
   messages: { role: string; content: string }[],
-): Promise<{ content: string; proof: ComputeProof }> {
+): Promise<ComputeGenerationResult> {
   const b = await broker();
   await ensureLedger(b);
 
@@ -249,24 +268,63 @@ async function generateViaBroker(
  */
 export async function generateVerifiable(
   messages: { role: string; content: string }[],
-): Promise<{ content: string; proof: ComputeProof }> {
+): Promise<ComputeGenerationResult> {
   const routerKey = process.env.ZEROG_ROUTER_API_KEY;
   if (routerKey) {
     try {
-      return await generateViaRouter(messages, routerKey);
+      const result = await generateViaRouter(messages, routerKey);
+      lastComputeFallback = null;
+      lastFundingFailure = null;
+      return result;
     } catch (error) {
-      if (!isRouterInsufficientBalanceError(error)) throw error;
+      if (!isRecoverableComputeError(error)) throw error;
       const balance = await getBalance();
-      if (Number(balance) < BROKER_MIN_LEDGER_OG) {
-        throw new Error(rememberFundingFailure({
+      if (isRouterInsufficientBalanceError(error) && Number(balance) < BROKER_MIN_LEDGER_OG) {
+        rememberFundingFailure({
           routerError: (error as Error).message,
           brokerBalance: balance,
-        }));
+        });
       }
-      lastFundingFailure = null;
-      return generateViaBroker(messages);
+      if (Number(balance) >= BROKER_MIN_LEDGER_OG) {
+        try {
+          const result = await generateViaBroker(messages);
+          lastComputeFallback = null;
+          lastFundingFailure = null;
+          return result;
+        } catch (brokerError) {
+          const fallback = await generateFallback(messages, `${(error as Error).message}; broker fallback failed: ${(brokerError as Error).message}`);
+          return fallback;
+        }
+      }
+      return generateFallback(messages, (error as Error).message);
     }
   }
 
-  return generateViaBroker(messages);
+  try {
+    const result = await generateViaBroker(messages);
+    lastComputeFallback = null;
+    return result;
+  } catch (error) {
+    if (!isRecoverableComputeError(error)) throw error;
+    return generateFallback(messages, (error as Error).message);
+  }
+}
+
+async function generateFallback(
+  messages: { role: string; content: string }[],
+  zerogError: string,
+): Promise<ComputeGenerationResult> {
+  const fallback = await generateViaSarvam(messages, zerogError);
+  lastComputeFallback = fallback.fallback;
+  return {
+    content: fallback.content,
+    proof: {
+      provider: "sarvam",
+      model: fallback.model,
+      chatID: fallback.proofId,
+      verified: false,
+      signature: fallback.fallback.zerogError,
+    },
+    fallback: fallback.fallback,
+  };
 }

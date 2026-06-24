@@ -13,20 +13,26 @@ export type PublicVerifyFact = { label: string; value: string; copy?: boolean };
 
 export function VerifyResult({
   proof,
+  integrityTitle = "Note hash matches",
+  integrityDetail,
   noteHash,
   computeValue,
   computeSubFacts,
   publicFacts,
   durationMs,
   storageValue,
+  privacyCopy = "The note stays encrypted and owned by the patient. The chief complaint, transcript, and SOAP note are never exposed here — only the integrity above is publicly verifiable.",
 }: {
   proof: ProofReceiptSummary;
+  integrityTitle?: string;
+  integrityDetail?: string;
   noteHash: string;
   computeValue: string;
   computeSubFacts?: { label: string; value: string }[];
   publicFacts: PublicVerifyFact[];
   durationMs?: number;
   storageValue?: string;
+  privacyCopy?: string;
 }) {
   return (
     <motion.div
@@ -50,7 +56,7 @@ export function VerifyResult({
       </div>
 
       <div className="divide-y divide-border rounded-xl border border-border bg-surface-1 px-[18px]">
-        <CheckRow title="Note hash matches" detail={proof.integrityLabel} value={noteHash} />
+        <CheckRow title={integrityTitle} detail={integrityDetail ?? proof.integrityLabel} value={noteHash} />
         <CheckRow
           title={proof.computeTitle}
           detail={proof.computeLabel}
@@ -87,11 +93,7 @@ export function VerifyResult({
 
       <div className="mt-4 flex items-start gap-2.5 px-0.5">
         <Lock className="mt-0.5 size-4 shrink-0 text-ink-dim" />
-        <p className="text-[13px] leading-snug text-ink-muted">
-          The note stays <span className="text-ink">encrypted and owned by the patient</span>. The
-          chief complaint, transcript, and SOAP note are never exposed here — only the integrity
-          above is publicly verifiable.
-        </p>
+        <p className="text-[13px] leading-snug text-ink-muted">{privacyCopy}</p>
       </div>
 
       <div className="mt-[18px] flex flex-col gap-2.5 sm:flex-row">

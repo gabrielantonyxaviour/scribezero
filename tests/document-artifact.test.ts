@@ -52,9 +52,28 @@ test("rejects document artifacts without verified 0G Compute proof", async () =>
         model: "glm-5.1",
         chatID: "zg-doc-proof",
         verified: false,
-      } as never,
+      },
       signMessage: async (message) => `signature:${message}`,
     }),
     /0G Compute proof/,
   );
+});
+
+test("allows document artifacts with disclosed Sarvam compute fallback", async () => {
+  const artifact = await buildEncryptedDocumentArtifact({
+    ownerAddress: owner,
+    document,
+    now: "2026-06-24T00:00:00.000Z",
+    computeProof: {
+      provider: "sarvam",
+      model: "sarvam-30b",
+      chatID: "sarvam-doc-proof",
+      verified: false,
+    },
+    signMessage: async (message) => `signature:${message}`,
+  });
+
+  assert.equal(isEncryptedDocumentArtifact(artifact), true);
+  assert.equal(artifact.public.computeProof.provider, "sarvam");
+  assert.equal(artifact.public.computeProof.verified, false);
 });

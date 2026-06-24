@@ -27,6 +27,7 @@ import {
 } from "@/lib/documents/generation";
 import type { ComputeProof } from "@/lib/0g/compute";
 import type { PatientIndexEntry } from "@/lib/patients/kv-index";
+import type { SarvamFallback } from "@/lib/sarvam";
 
 const DOCUMENT_TYPES: DocumentType[] = [
   "medical_certificate",
@@ -58,16 +59,24 @@ async function readJson<T>(res: Response): Promise<T> {
 export function DocumentCreateDialog({
   patients,
   onCreated,
-  computeBlockedReason = "",
+  computeNotice = "",
 }: {
   patients: PatientIndexEntry[];
   onCreated: () => Promise<void>;
-  computeBlockedReason?: string;
+  computeNotice?: string;
 }) {
   const wallet = useWallet();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [form, setForm] = useState(defaultForm);
+
+  function handleOpenChange(nextOpen: boolean) {
+    setOpen(nextOpen);
+    if (nextOpen && !form.patientId && patients[0]) {
+      setForm((prev) => ({ ...prev, patientId: patients[0].patientId }));
+    }
+  }
+
 
   async function createDocument() {
     if (!wallet.connected || !wallet.address) throw new Error("Connect a wallet before creating a document");
@@ -81,7 +90,8 @@ export function DocumentCreateDialog({
       }).then((res) =>
         readJson<{
           document: GeneratedClinicalDocument;
-          proof: ComputeProof & { verified: true };
+          proof: ComputeProof;
+          fallback?: SarvamFallback;
         }>(res),
       );
       const artifact = await buildEncryptedDocumentArtifact({
@@ -105,7 +115,9 @@ export function DocumentCreateDialog({
         }),
       }).then((res) => readJson<{ txHash: string; documentId: string }>(res));
       toast.success("Document generated, encrypted, and indexed on 0G", {
-        description: `${indexed.documentId} · ${short(indexed.txHash)}`,
+        description: generated.fallback
+          ? `Sarvam fallback: ${generated.fallback.zerogError}`
+          : `${indexed.documentId} · ${short(indexed.txHash)}`,
       });
       setOpen(false);
       setForm(defaultForm);
@@ -119,12 +131,12 @@ export function DocumentCreateDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
           variant="live"
-          disabled={!patients.length || Boolean(computeBlockedReason)}
-          title={computeBlockedReason || (!patients.length ? "Create a 0G-indexed patient first" : undefined)}
+          disabled={!patients.length}
+          title={computeNotice || (!patients.length ? "Create a 0G-indexed patient first" : undefined)}
         >
           <FileCheck2 className="size-4" />
           New document

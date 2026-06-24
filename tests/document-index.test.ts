@@ -66,3 +66,26 @@ test("uses stable document KV keys", () => {
     `doctor/${owner}/patients/${patientId}/documents/doc_123`,
   );
 });
+
+test("indexes disclosed document fallback without marking compute proof valid", async () => {
+  const artifact = await buildEncryptedDocumentArtifact({
+    ownerAddress: owner,
+    document,
+    now: "2026-06-24T00:00:00.000Z",
+    computeProof: {
+      provider: "sarvam",
+      model: "sarvam-30b",
+      chatID: "sarvam-doc-proof",
+      verified: false,
+    },
+    signMessage: async (message) => `signature:${message}`,
+  });
+  const entry = buildDocumentIndexEntry({
+    artifact,
+    storageRootHash: "0x3b96e18c73cbb250d9c4e96f8299401c8f7eaf8cd703d9570e1420d158a38002",
+  });
+
+  assert.equal(entry.computeProvider, "sarvam");
+  assert.equal(entry.computeProofValid, false);
+  assert.equal(JSON.stringify(entry).includes("chest pain"), false);
+});

@@ -18,6 +18,7 @@ import { SEAL_STEPS, sealConsultSmart, type SmartSealResult, type StepId, type S
 import { useWallet } from "@/components/providers/wallet-provider";
 import { truncHash, truncAddress } from "@/lib/format";
 import type { TranscriptionResult } from "@/shared/contract";
+import type { SarvamFallback } from "@/lib/sarvam";
 
 type Phase = "idle" | "recording" | "transcribing" | "ready" | "sealing" | "sealed";
 type AppLanguage = "ta" | "hi" | "en";
@@ -28,6 +29,7 @@ type RouterSttResponse = {
   provider: string;
   chatID?: string;
   verified?: boolean | null;
+  fallback?: SarvamFallback;
 };
 
 export default function ScribePage() {
@@ -36,6 +38,7 @@ export default function ScribePage() {
   const [lang, setLang] = useState<AppLanguage>("ta");
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
+  const [sttFallback, setSttFallback] = useState<SarvamFallback | null>(null);
   const [transcription, setTranscription] = useState<TranscriptionResult | null>(null);
   const [steps, setSteps] = useState<Record<StepId, StepStatus>>({
     route: "idle",
@@ -96,14 +99,15 @@ export default function ScribePage() {
       if (!stt.text?.trim()) {
         throw new Error("0G STT returned an empty transcript");
       }
-      if (stt.verified !== true) {
+      if (stt.provider !== "sarvam" && stt.verified !== true) {
         throw new Error(
           `0G STT proof did not verify for provider ${stt.provider || "unknown"} and proof ${stt.chatID || "missing"}`,
         );
       }
+      setSttFallback(stt.fallback ?? null);
       setTranscription({
         transcript: stt.text.trim(),
-        provider: "0g-router",
+        provider: stt.provider === "sarvam" ? "sarvam" : "0g-router",
         language: stt.language || lang,
         proofId: stt.chatID,
         proofVerified: stt.verified,
@@ -129,6 +133,7 @@ export default function ScribePage() {
     try {
       setError("");
       setResult(null);
+      setSttFallback(null);
       setTranscription(null);
       resetSteps();
       setElapsed(0);
@@ -205,6 +210,17 @@ export default function ScribePage() {
           Tamil, Hindi or English — code-switch freely. The transcript runs live; the note is sealed inside 0G.
         </p>
 
+        {sttFallback || result?.computeFallback ? (
+          <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-ink">
+            <p className="font-medium text-amber-100">
+              {result?.computeFallback ? "0G Compute fallback active" : "0G STT fallback active"}
+            </p>
+            <p className="mt-1 break-words text-ink-muted">
+              {(result?.computeFallback ?? sttFallback)?.zerogError}
+            </p>
+          </div>
+        ) : null}
+
         <div className="mt-6 rounded-xl border border-border bg-surface-1 p-4">
           <div className="flex flex-wrap items-center gap-4">
             <button
@@ -264,7 +280,11 @@ export default function ScribePage() {
             <span className="ds-eyebrow !text-ink-dim">Live transcript</span>
             <span className="ds-mono flex items-center gap-1.5 text-[10px] text-jade">
               {recording ? <LiveDot size={6} /> : null}
-              {transcription ? `${transcription.provider} · verified` : "waiting for audio"}
+              {transcription
+                ? transcription.proofVerified === true
+                  ? `${transcription.provider} · verified`
+                  : `${transcription.provider} · fallback`
+                : "waiting for audio"}
             </span>
           </div>
           {!transcription ? (
@@ -283,7 +303,11 @@ export default function ScribePage() {
             <div className="ds-mono flex items-center gap-3 border-t border-border px-4 py-2 text-[10px] text-ink-dim">
               <span>{words} words</span>
               <span>·</span>
-              <span>0G Router STT proof verified</span>
+              <span>
+                {transcription.proofVerified === true
+                  ? "0G Router STT proof verified"
+                  : "STT fallback · not TEE verified"}
+              </span>
               <span>·</span>
               <span>{transcription.language || lang}</span>
             </div>
@@ -298,7 +322,7 @@ export default function ScribePage() {
                   <ShieldCheck /> Generate and seal on 0G
                 </Button>
                 <p className="ds-mono mt-2 text-center text-[11px] text-ink-dim">
-                  Requires verified 0G Compute and confirmed 0G Storage. The app stops on failure.
+                  0G Storage is required. If 0G Compute is unavailable, Sarvam fallback is disclosed.
                 </p>
               </>
             )}
@@ -306,7 +330,7 @@ export default function ScribePage() {
             {(phase === "sealing" || phase === "sealed") && (
               <div className="rounded-xl border border-border bg-surface-1 p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <span className="ds-eyebrow !text-ink-dim">Sealing on 0G</span>
+                  <span className="ds-eyebrow !text-ink-dim">Sealing record</span>
                   <span className="ds-mono text-[10px] text-ink-dim">
                     {phase === "sealed" ? "done" : "step in progress"}
                   </span>
@@ -335,14 +359,29 @@ export default function ScribePage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-ink">
-                  Verified & owned on 0G
+                  {result.teeProof?.verified === true
+                    ? "Verified & owned on 0G"
+                    : "Owned on 0G Storage · Compute fallback"}
                 </span>
-                <span className="ds-mono flex items-center gap-1 rounded-full border border-jade/30 bg-jade-soft px-2 py-0.5 text-[10px] text-jade">
-                  <LiveDot size={5} /> 0G testnet
+                <span
+                  className={cn(
+                    "ds-mono flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                    result.teeProof?.verified === true
+                      ? "border-jade/30 bg-jade-soft text-jade"
+                      : "border-amber-400/30 bg-amber-400/10 text-amber-100",
+                  )}
+                >
+                  <LiveDot size={5} /> {result.teeProof?.verified === true ? "0G testnet" : "Sarvam fallback"}
                 </span>
               </div>
               <div className="ds-mono mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-dim">
-                <span>TEE proof <span className="text-jade">✓</span> {truncHash(rec.teeTlsProof)}</span>
+                <span>
+                  {result.teeProof?.verified === true ? "TEE proof" : "Fallback proof"}{" "}
+                  <span className={result.teeProof?.verified === true ? "text-jade" : "text-amber-100"}>
+                    {result.teeProof?.verified === true ? "✓" : "!"}
+                  </span>{" "}
+                  {truncHash(rec.teeTlsProof)}
+                </span>
                 <span>·</span>
                 <Copyable value={rec.zgStorageRootHash} display={`root ${truncHash(rec.zgStorageRootHash)}`} label="Storage root copied" />
                 <span>·</span>

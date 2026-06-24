@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -21,10 +21,15 @@ import { StepSampleConsult } from "@/components/onboarding/step-sample-consult";
 import { StepCelebration } from "@/components/onboarding/step-celebration";
 import type { ProfileSealState } from "@/components/onboarding/step-celebration";
 import { OnboardingAside } from "@/components/onboarding/onboarding-aside";
-import { buildPracticeProfileArtifact, profileArtifactHash } from "@/lib/onboarding/profile-artifact";
+import {
+  buildPracticeProfileArtifact,
+  isPracticeProfileArtifact,
+  profileArtifactHash,
+} from "@/lib/onboarding/profile-artifact";
 import {
   ZEROG_RPC,
   encodeRegisterPracticeProfile,
+  findLatestPracticeProfileRegistration,
   requireRegistryAddress,
   waitForRegistryReceipt,
 } from "@/lib/0g/registry";
@@ -53,6 +58,7 @@ export default function OnboardingPage() {
   const [seal, setSeal] = useState<ProfileSealState>({ status: "idle" });
   const [hydrated, setHydrated] = useState(false);
   const finishing = useRef(false);
+  const recovering = useRef(false);
 
   useEffect(() => {
     if (ready && !connected && !resolving) router.replace("/");
@@ -137,6 +143,94 @@ export default function OnboardingPage() {
     };
   }
 
+  const recoverRegisteredProfile = useCallback(
+    async ({ redirect = true }: { redirect?: boolean } = {}) => {
+      if (!address) return null;
+      const registration = await findLatestPracticeProfileRegistration(address);
+      if (!registration) return null;
+
+      const res = await fetch(`/api/0g/download?root=${registration.rootHash}`, { cache: "no-store" });
+      const artifact = (await res.json().catch(() => null)) as unknown;
+      if (!res.ok) {
+        throw new Error(
+          `0G Storage download failed for existing profile ${registration.rootHash}: ${JSON.stringify(artifact)}`,
+        );
+      }
+      if (!isPracticeProfileArtifact(artifact)) {
+        throw new Error(`0G Storage profile artifact is invalid for ${registration.rootHash}`);
+      }
+      if (artifact.ownerAddress.toLowerCase() !== address.toLowerCase()) {
+        throw new Error("0G Storage profile owner does not match the connected wallet");
+      }
+
+      const downloadedArtifactHash = profileArtifactHash(artifact);
+      if (downloadedArtifactHash.toLowerCase() !== registration.artifactHash.toLowerCase()) {
+        throw new Error("0G Storage profile artifact hash does not match the registry event");
+      }
+
+      const recoveredProfile: DoctorProfile = {
+        name: artifact.doctor.name,
+        clinic: artifact.practice.clinic,
+        city: artifact.practice.city || "",
+        specialty: artifact.doctor.specialty,
+        languages: artifact.practice.languages,
+        motivation: artifact.practice.motivation,
+        degrees: artifact.doctor.degrees || "",
+        registrationNumber: artifact.doctor.registrationNumber || "",
+        registrationCouncil: artifact.doctor.registrationCouncil || "",
+        sampleConsultReviewed: artifact.demo.sampleConsultReviewed,
+        profileRootHash: registration.rootHash,
+        profileTxHash: isZeroHash(registration.storageTxHash) ? undefined : registration.storageTxHash,
+        profileArtifactHash: registration.artifactHash,
+        profileStoredAt: artifact.createdAt,
+        profileStorageMode: "live",
+        profileRegistryAddress: registration.registryAddress,
+        profileRegistryTxHash: registration.registryTxHash,
+        profileRegistryBlockNumber: registration.registryBlockNumber,
+      };
+      const recoveredSeal: ProfileSealState = {
+        status: "sealed",
+        mode: "live",
+        rootHash: registration.rootHash,
+        txHash: recoveredProfile.profileTxHash,
+        storedAt: artifact.createdAt,
+        artifactHash: registration.artifactHash,
+        registryAddress: registration.registryAddress,
+        registryTxHash: registration.registryTxHash,
+        registryBlockNumber: registration.registryBlockNumber,
+      };
+
+      save(recoveredProfile);
+      setSeal(recoveredSeal);
+      if (redirect) router.replace("/dashboard");
+      return recoveredSeal;
+    },
+    [address, router, save],
+  );
+
+  useEffect(() => {
+    if (!ready || !connected || !address || status !== "needed" || allowRerun || recovering.current) return;
+    recovering.current = true;
+    setSeal({
+      status: "sealing",
+      stage: "checking",
+      message: "Checking 0G Chain for an existing practice profile",
+    });
+    recoverRegisteredProfile()
+      .then((recovered) => {
+        if (!recovered) setSeal({ status: "idle" });
+      })
+      .catch((error) => {
+        setSeal({
+          status: "error",
+          message: `0G profile recovery failed: ${(error as Error).message}`,
+        });
+      })
+      .finally(() => {
+        recovering.current = false;
+      });
+  }, [address, allowRerun, connected, ready, recoverRegisteredProfile, status]);
+
   async function sealProfile() {
     if (!address || seal.status === "sealing") return;
     setSeal({
@@ -150,6 +244,8 @@ export default function OnboardingPage() {
 
     try {
       const registryAddress = requireRegistryAddress();
+      const recovered = await recoverRegisteredProfile({ redirect: false });
+      if (recovered) return;
       await assertWalletHasGas(address);
 
       setSeal({
@@ -330,6 +426,10 @@ export default function OnboardingPage() {
       </div>
     </div>
   );
+}
+
+function isZeroHash(value: string) {
+  return /^0x0{64}$/i.test(value);
 }
 
 async function assertWalletHasGas(address: string) {

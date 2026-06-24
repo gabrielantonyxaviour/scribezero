@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { BROKER_MIN_LEDGER_OG, getLastComputeFundingFailure } from "@/lib/0g/compute";
+import {
+  BROKER_MIN_LEDGER_OG,
+  getLastComputeFallback,
+  getLastComputeFundingFailure,
+} from "@/lib/0g/compute";
 import { ZEROG_ENABLED, getWallet, getBalance, ZEROG_INDEXER, ZEROG_RPC } from "@/lib/0g/server";
 
 export const runtime = "nodejs";
@@ -49,6 +53,7 @@ export async function GET() {
     const funded = Number(balance) > 0;
     const brokerFunded = Number(balance) >= BROKER_MIN_LEDGER_OG;
     const computeFundingFailure = getLastComputeFundingFailure();
+    const computeFallback = getLastComputeFallback();
     const errors = [
       !funded ? "0G storage signer has no native 0G for transactions" : "",
       !routerConfigured ? "ZEROG_ROUTER_API_KEY is not set; STT and Compute cannot run through 0G Router" : "",
@@ -71,6 +76,7 @@ export async function GET() {
         funded: brokerFunded,
       },
       computeFundingFailure,
+      computeFallback,
       integrations,
       warnings: errors,
     });

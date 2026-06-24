@@ -1,4 +1,5 @@
 import { getWallet } from "./server";
+import { transcribeViaSarvam, type SarvamFallback } from "../sarvam";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -12,6 +13,14 @@ export interface SttResult {
   provider: string;
   chatID?: string;
   verified?: boolean | null;
+  fallback?: SarvamFallback;
+}
+
+export function isRecoverableSttError(error: unknown) {
+  const message = String((error as Error)?.message ?? error);
+  return /0G STT (402|408|409|425|429|500|502|503|504)|insufficient_balance|Insufficient balance|payment_error|rate.?limit|provider unavailable|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND/i.test(
+    message,
+  );
 }
 
 /**
@@ -57,4 +66,19 @@ export async function transcribeViaRouter(
   }
 
   return { text: data.text ?? "", language: data.language, provider, chatID, verified };
+}
+
+export async function transcribeWithFallback(
+  audio: ArrayBuffer | Uint8Array,
+  filename: string,
+  apiKey: string | undefined,
+  language?: "ta" | "hi" | "en",
+): Promise<SttResult> {
+  try {
+    if (!apiKey) throw new Error("0G STT 503: ZEROG_ROUTER_API_KEY is not set");
+    return await transcribeViaRouter(audio, filename, apiKey, language);
+  } catch (error) {
+    if (!isRecoverableSttError(error)) throw error;
+    return transcribeViaSarvam(audio, filename, language, (error as Error).message);
+  }
 }
