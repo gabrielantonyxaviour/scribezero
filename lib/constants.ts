@@ -15,6 +15,6 @@ export const NETWORK = {
 export const COMPUTE = {
   router: "https://router-api-testnet.integratenetwork.work/v1",
   mode: "TEE",
-  model: "glm-5.1",
+  model: "qwen2.5-omni",
   attestation: "dstack TEE",
 } as const;

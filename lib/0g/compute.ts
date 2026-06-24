@@ -58,7 +58,7 @@ async function ensureLedger(b: any) {
 
 const ROUTER_URL =
   process.env.ZEROG_COMPUTE_ROUTER || "https://router-api-testnet.integratenetwork.work/v1";
-const ROUTER_MODEL = process.env.ZEROG_COMPUTE_MODEL || "glm-5.1";
+const ROUTER_MODEL = process.env.ZEROG_COMPUTE_MODEL || "qwen2.5-omni";
 const ROUTER_MAX_TOKENS = Number(process.env.ZEROG_COMPUTE_MAX_TOKENS || 900);
 export const BROKER_MIN_LEDGER_OG = 3;
 

@@ -47,7 +47,7 @@ ZEROG_ROUTER_API_KEY=sk-...        # 0G Compute router key (pc.0g.ai) — enable
 # optional overrides:
 ZEROG_RPC=https://evmrpc-testnet.0g.ai
 ZEROG_INDEXER=https://indexer-storage-testnet-turbo.0g.ai
-ZEROG_COMPUTE_MODEL=glm-5.2
+ZEROG_COMPUTE_MODEL=qwen2.5-omni
 ```
 `GET /api/status` reports whether the wallet is enabled and funded; `/app` switches to the live 0G path automatically when it is, and falls back to a clearly-labeled mock otherwise.
 
