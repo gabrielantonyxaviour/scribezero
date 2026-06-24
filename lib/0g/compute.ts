@@ -1,4 +1,4 @@
-import { getWallet } from "./server";
+import { getBalance, getWallet } from "./server";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -60,6 +60,52 @@ const ROUTER_URL =
   process.env.ZEROG_COMPUTE_ROUTER || "https://router-api-testnet.integratenetwork.work/v1";
 const ROUTER_MODEL = process.env.ZEROG_COMPUTE_MODEL || "glm-5.1";
 const ROUTER_MAX_TOKENS = Number(process.env.ZEROG_COMPUTE_MAX_TOKENS || 900);
+export const BROKER_MIN_LEDGER_OG = 3;
+
+type ComputeFundingFailure = {
+  message: string;
+  routerError: string;
+  brokerBalance: string;
+  requiredBrokerOg: number;
+  at: string;
+};
+
+let lastFundingFailure: ComputeFundingFailure | null = null;
+
+export function getLastComputeFundingFailure() {
+  return lastFundingFailure;
+}
+
+export function isRouterInsufficientBalanceError(error: unknown) {
+  const message = String((error as Error)?.message ?? error);
+  return /router 402|insufficient_balance|Insufficient balance|payment_error/i.test(message);
+}
+
+export function computeFundingError(input: {
+  routerError: string;
+  brokerBalance: string;
+  minLedgerOg?: number;
+}) {
+  return [
+    `0G Compute Router billing failed: ${input.routerError}`,
+    `Direct 0G Compute broker is also unavailable: server wallet has ${input.brokerBalance} OG, ${input.minLedgerOg ?? BROKER_MIN_LEDGER_OG} OG required for broker ledger funding`,
+  ].join("; ");
+}
+
+function rememberFundingFailure(input: {
+  routerError: string;
+  brokerBalance: string;
+  minLedgerOg?: number;
+}) {
+  lastFundingFailure = {
+    message: computeFundingError(input),
+    routerError: input.routerError,
+    brokerBalance: input.brokerBalance,
+    requiredBrokerOg: input.minLedgerOg ?? BROKER_MIN_LEDGER_OG,
+    at: new Date().toISOString(),
+  };
+  return lastFundingFailure.message;
+}
 
 function routerBody(messages: { role: string; content: string }[]) {
   return {
@@ -129,16 +175,9 @@ async function generateViaRouter(
   };
 }
 
-/**
- * Verifiable SOAP generation. Uses the hosted 0G Router when ZEROG_ROUTER_API_KEY is
- * set, otherwise the wallet/broker ledger path. Both run inside 0G Compute TEEs.
- */
-export async function generateVerifiable(
+async function generateViaBroker(
   messages: { role: string; content: string }[],
 ): Promise<{ content: string; proof: ComputeProof }> {
-  const routerKey = process.env.ZEROG_ROUTER_API_KEY;
-  if (routerKey) return generateViaRouter(messages, routerKey);
-
   const b = await broker();
   await ensureLedger(b);
 
@@ -194,7 +233,7 @@ export async function generateVerifiable(
     // Lazy top-up on insufficient funds, then one retry.
     if (/insufficient|balance|fund/i.test(String(e?.message))) {
       try {
-        await b.ledger.depositFund(3);
+        await b.ledger.depositFund(BROKER_MIN_LEDGER_OG);
         return await run();
       } catch (e2: any) {
         throw new Error(`compute funding failed: ${e2?.message ?? e2}`);
@@ -202,4 +241,32 @@ export async function generateVerifiable(
     }
     throw e;
   }
+}
+
+/**
+ * Verifiable SOAP generation. Uses the hosted 0G Router when ZEROG_ROUTER_API_KEY is
+ * set, otherwise the wallet/broker ledger path. Both run inside 0G Compute TEEs.
+ */
+export async function generateVerifiable(
+  messages: { role: string; content: string }[],
+): Promise<{ content: string; proof: ComputeProof }> {
+  const routerKey = process.env.ZEROG_ROUTER_API_KEY;
+  if (routerKey) {
+    try {
+      return await generateViaRouter(messages, routerKey);
+    } catch (error) {
+      if (!isRouterInsufficientBalanceError(error)) throw error;
+      const balance = await getBalance();
+      if (Number(balance) < BROKER_MIN_LEDGER_OG) {
+        throw new Error(rememberFundingFailure({
+          routerError: (error as Error).message,
+          brokerBalance: balance,
+        }));
+      }
+      lastFundingFailure = null;
+      return generateViaBroker(messages);
+    }
+  }
+
+  return generateViaBroker(messages);
 }

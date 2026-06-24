@@ -94,7 +94,8 @@ export async function getKvJson<T>(key: string): Promise<T | null> {
   const client = new KvClient(rpc);
   const value = await client.getValue(streamId, Buffer.from(key, "utf8"));
   if (!value) return null;
-  const raw = Buffer.from(value.data, "base64").toString("utf8");
+  const raw = decodeKvData(value.data);
+  if (!raw) return null;
   return JSON.parse(raw) as T;
 }
 
@@ -113,7 +114,12 @@ export async function listKvJson<T>(
     if (!next) break;
     const key = decodeKvKey(next.key).toString("utf8");
     if (!key.startsWith(prefix)) break;
-    const raw = Buffer.from(next.data, "base64").toString("utf8");
+    const raw = decodeKvData(next.data);
+    if (!raw) {
+      cursor = key;
+      inclusive = false;
+      continue;
+    }
     rows.push({ key, value: JSON.parse(raw) as T });
     cursor = key;
     inclusive = false;
@@ -125,4 +131,9 @@ export async function listKvJson<T>(
 function decodeKvKey(value: string | Uint8Array | ArrayLike<number>) {
   if (typeof value === "string") return Buffer.from(value, "base64");
   return Buffer.from(value);
+}
+
+function decodeKvData(value: string | Uint8Array | ArrayLike<number>) {
+  const raw = (typeof value === "string" ? Buffer.from(value, "base64") : Buffer.from(value)).toString("utf8");
+  return raw.trim() || null;
 }

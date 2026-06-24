@@ -15,7 +15,7 @@ function Dot() {
   return <div style={{ display: "flex", width: 14, height: 14, borderRadius: 7, background: jade }} />;
 }
 
-// Branded share-card placeholder. Real share records require a 0G KV index entry.
+// Branded share card for unresolved share links. Real share records require a 0G KV index entry.
 export default async function Image() {
   const logo = await readFile(join(process.cwd(), "public/brand/scribe-zero-icon-192.png"));
   const logoSrc = `data:image/png;base64,${logo.toString("base64")}`;

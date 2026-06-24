@@ -45,7 +45,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 }
 
 /**
- * Live path. It fails closed: no local note, no placeholder record, and no storage-only
+ * Live path. It fails closed: no local note, no synthetic record, and no storage-only
  * completion. A sealed consult requires verified 0G Compute and reachable 0G Storage.
  */
 async function sealReal(
@@ -173,7 +173,7 @@ async function sealReal(
 
 /**
  * Uses real 0G only. The connected Privy wallet is the record owner; failure to
- * reach or verify 0G is surfaced to the UI instead of generating a placeholder record.
+ * reach or verify 0G is surfaced to the UI instead of generating a synthetic record.
  */
 export async function sealConsultSmart(
   onStep: StepFn,

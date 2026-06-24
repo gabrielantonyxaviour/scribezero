@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BROKER_MIN_LEDGER_OG, getLastComputeFundingFailure } from "@/lib/0g/compute";
 import { ZEROG_ENABLED, getWallet, getBalance, ZEROG_INDEXER, ZEROG_RPC } from "@/lib/0g/server";
 
 export const runtime = "nodejs";
@@ -46,9 +47,14 @@ export async function GET() {
     const address = getWallet().address;
     const balance = await getBalance();
     const funded = Number(balance) > 0;
+    const brokerFunded = Number(balance) >= BROKER_MIN_LEDGER_OG;
+    const computeFundingFailure = getLastComputeFundingFailure();
     const errors = [
       !funded ? "0G storage signer has no native 0G for transactions" : "",
       !routerConfigured ? "ZEROG_ROUTER_API_KEY is not set; STT and Compute cannot run through 0G Router" : "",
+      routerConfigured && !brokerFunded
+        ? `Direct 0G Compute broker fallback needs ${BROKER_MIN_LEDGER_OG} OG; server wallet has ${balance} OG`
+        : "",
       !kvConfigured ? "ZEROG_KV_RPC and ZEROG_KV_STREAM_ID are not set; 0G KV indexing is unavailable" : "",
       !registryConfigured
         ? "NEXT_PUBLIC_ZEROG_REGISTRY_ADDRESS is not set; onboarding cannot register doctor profiles on 0G Chain"
@@ -60,6 +66,11 @@ export async function GET() {
       address,
       balance,
       funded,
+      computeBroker: {
+        minimumLedgerFunding: `${BROKER_MIN_LEDGER_OG}`,
+        funded: brokerFunded,
+      },
+      computeFundingFailure,
       integrations,
       warnings: errors,
     });

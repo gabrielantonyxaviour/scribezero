@@ -483,11 +483,11 @@ function CtaBand() {
         <div className="flex flex-col items-start justify-between gap-6 rounded-xl border border-border-strong bg-surface-1 px-7 py-7 sm:flex-row sm:items-center sm:gap-6">
           <div className="min-w-0 flex-1">
             <p className="ds-display text-[28px] leading-[1.1] text-ink sm:text-[30px]">
-              Try a sample consult.
+              Start a live consult.
             </p>
             <p className="mt-2 max-w-[340px] text-[14px] text-ink-muted">
-              No setup. Hear a Tamil consultation become a SOAP note, sealed on 0G in front of you.
-              Connect a wallet to keep it.
+              Record real microphone audio, route it through 0G, and seal the encrypted SOAP note
+              to your connected wallet.
             </p>
           </div>
           <div className="flex w-full flex-col gap-2.5 sm:w-auto sm:flex-shrink-0">

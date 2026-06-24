@@ -1,30 +1,230 @@
-import { FileText } from "lucide-react";
+"use client";
 
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, FileText, Loader2 } from "lucide-react";
+
+import { DocumentCreateDialog } from "@/components/documents/document-create-dialog";
+import { useWallet } from "@/components/providers/wallet-provider";
 import { AppShell } from "@/components/shell/app-shell";
 import { RequireDoctor } from "@/components/shell/require-doctor";
+import { Copyable } from "@/components/sz/copyable";
 import { RealDataEmptyState } from "@/components/sz/real-data-empty-state";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { documentTypeLabel, type DocumentType } from "@/lib/documents/generation";
+import type { DocumentIndexEntry } from "@/lib/documents/kv-index";
+import type { PatientIndexEntry } from "@/lib/patients/kv-index";
+
+type LoadState = "loading" | "ready" | "error";
+type ZeroGStatus = {
+  computeBroker?: { minimumLedgerFunding: string; funded: boolean };
+  computeFundingFailure?: { message: string; at: string } | null;
+  warnings?: string[];
+};
+
+function short(value: string, start = 10, end = 6) {
+  if (!value) return "";
+  return value.length <= start + end ? value : `${value.slice(0, start)}…${value.slice(-end)}`;
+}
+
+async function readJson<T>(res: Response): Promise<T> {
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `${res.status} ${res.statusText}`);
+  return body as T;
+}
 
 export default function DocumentsPage() {
   return (
     <RequireDoctor>
-    <AppShell className="max-w-[960px]">
-      <header className="mb-6">
-        <p className="ds-eyebrow text-jade">Documents</p>
-        <h1 className="ds-display mt-2 text-[38px] leading-none text-ink">
-          Clinical documents
-        </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          Notes, instructions, and summaries generated from verified consultations.
-        </p>
+      <DocumentsWorkspace />
+    </RequireDoctor>
+  );
+}
+
+function DocumentsWorkspace() {
+  const wallet = useWallet();
+  const [documents, setDocuments] = useState<DocumentIndexEntry[]>([]);
+  const [patients, setPatients] = useState<PatientIndexEntry[]>([]);
+  const [zeroGStatus, setZeroGStatus] = useState<ZeroGStatus | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [error, setError] = useState("");
+
+  const loadWorkspace = useCallback(async () => {
+    if (!wallet.address) return;
+    setLoadState("loading");
+    setError("");
+    try {
+      const [documentData, patientData, statusData] = await Promise.all([
+        fetch(`/api/documents/index?owner=${wallet.address}`, { cache: "no-store" }).then((res) =>
+          readJson<{ documents: DocumentIndexEntry[] }>(res),
+        ),
+        fetch(`/api/patients/index?owner=${wallet.address}`, { cache: "no-store" }).then((res) =>
+          readJson<{ patients: PatientIndexEntry[] }>(res),
+        ),
+        fetch("/api/status", { cache: "no-store" }).then((res) => readJson<ZeroGStatus>(res)),
+      ]);
+      setDocuments(documentData.documents);
+      setPatients(patientData.patients);
+      setZeroGStatus(statusData);
+      setLoadState("ready");
+    } catch (err) {
+      setError((err as Error).message);
+      setLoadState("error");
+    }
+  }, [wallet.address]);
+
+  useEffect(() => {
+    let active = true;
+    if (!wallet.address) return;
+    Promise.all([
+      fetch(`/api/documents/index?owner=${wallet.address}`, { cache: "no-store" }).then((res) =>
+        readJson<{ documents: DocumentIndexEntry[] }>(res),
+      ),
+      fetch(`/api/patients/index?owner=${wallet.address}`, { cache: "no-store" }).then((res) =>
+        readJson<{ patients: PatientIndexEntry[] }>(res),
+      ),
+      fetch("/api/status", { cache: "no-store" }).then((res) => readJson<ZeroGStatus>(res)),
+    ])
+      .then(([documentData, patientData, statusData]) => {
+        if (!active) return;
+        setDocuments(documentData.documents);
+        setPatients(patientData.patients);
+        setZeroGStatus(statusData);
+        setLoadState("ready");
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError((err as Error).message);
+        setLoadState("error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [wallet.address]);
+
+  const sortedDocuments = useMemo(
+    () => [...documents].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [documents],
+  );
+  const computeFundingIssue = zeroGStatus?.computeFundingFailure?.message ?? "";
+  const brokerWarning =
+    zeroGStatus?.warnings?.find((warning) => warning.includes("Compute broker fallback")) ?? "";
+
+  return (
+    <AppShell className="max-w-[1080px]">
+      <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="ds-eyebrow text-jade">0G documents</p>
+          <h1 className="ds-display mt-2 text-[38px] leading-none text-ink">
+            Clinical documents
+          </h1>
+          <p className="mt-2 max-w-[650px] text-sm text-ink-muted">
+            Medical certificates, referral letters, patient instructions, and visit summaries
+            generated by verified 0G Compute and stored as encrypted 0G artifacts.
+          </p>
+        </div>
+        <DocumentCreateDialog
+          patients={patients}
+          onCreated={loadWorkspace}
+          computeBlockedReason={computeFundingIssue}
+        />
       </header>
 
-      <RealDataEmptyState
-        icon={FileText}
-        title="No generated documents yet"
-        body="Medical certificates, referral letters, summaries, and patient instructions will appear here after real 0G Compute generation and encrypted 0G Storage."
-        primaryLabel="Create consult first"
-      />
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-ink-dim">
+        <Badge variant="outline" className="border-jade/30 bg-jade-soft text-jade">
+          0G Compute verified
+        </Badge>
+        <Badge variant="outline" className="border-jade/30 bg-jade-soft text-jade">
+          0G Storage encrypted
+        </Badge>
+        <Badge variant="outline" className="border-jade/30 bg-jade-soft text-jade">
+          0G KV indexed
+        </Badge>
+        <span className="ds-mono">owner {short(wallet.address)}</span>
+      </div>
+
+      {computeFundingIssue || brokerWarning ? (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-ink">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-300" />
+          <div>
+            <p className="font-medium text-amber-100">
+              {computeFundingIssue ? "0G Compute funding is blocking document generation" : "0G broker fallback is not funded"}
+            </p>
+            <p className="mt-1 text-ink-muted">
+              {computeFundingIssue || brokerWarning}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {loadState === "error" ? (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-ink">
+          0G document index read failed: {error}
+        </div>
+      ) : loadState === "loading" ? (
+        <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-border bg-surface-1 text-ink-muted">
+          <Loader2 className="mr-2 size-4 animate-spin text-jade" />
+          Loading 0G document index
+        </div>
+      ) : sortedDocuments.length === 0 ? (
+        <RealDataEmptyState
+          icon={FileText}
+          title="No generated documents yet"
+          body={
+            patients.length
+              ? "Generate a document to run 0G Compute, encrypt the output, store it on 0G Storage, and index the proof handles in 0G KV."
+              : "Create a patient first. Documents are always bound to a 0G-indexed patient."
+          }
+          primaryHref={patients.length ? "/documents" : "/patients"}
+          primaryLabel={patients.length ? "Use New document" : "Create patient"}
+        />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border bg-surface-1">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Document</TableHead>
+                <TableHead>Patient</TableHead>
+                <TableHead>0G Storage root</TableHead>
+                <TableHead>TEE proof</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedDocuments.map((document) => (
+                <TableRow key={document.documentId}>
+                  <TableCell>
+                    <div className="font-medium text-ink">
+                      {documentTypeLabel(document.type as DocumentType)}
+                    </div>
+                    <div className="ds-mono text-xs text-ink-dim">{document.documentId}</div>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/patients/${document.patientId}`} className="text-ink hover:text-jade">
+                      {document.patientId}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Copyable value={document.storageRootHash} display={short(document.storageRootHash)} />
+                  </TableCell>
+                  <TableCell>
+                    <Copyable value={document.computeProof} display={short(document.computeProof)} />
+                  </TableCell>
+                  <TableCell>{new Date(document.createdAt).toLocaleString()}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </AppShell>
-    </RequireDoctor>
   );
 }
