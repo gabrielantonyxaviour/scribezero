@@ -1,4 +1,4 @@
-const ORIGIN = "https://scribezero.cosmiclaus.com";
+const ORIGIN = "https://scribezero.gabrielaxy.workers.dev";
 
 function rewriteLocation(headers, publicOrigin) {
   const location = headers.get("location");
